@@ -52,7 +52,7 @@ function mountHome(settings: Record<string, unknown> = {}) {
 }
 
 function compactDestination(wrapper: ReturnType<typeof mountHome>) {
-  return wrapper.get('[data-testid="compact-home"]').findComponent(RouterLinkStub).props('to')
+  return wrapper.get('[data-testid="compact-primary-cta"]').findComponent(RouterLinkStub).props('to')
 }
 
 describe('HomeView compact mode', () => {
@@ -101,7 +101,10 @@ describe('HomeView compact mode', () => {
   })
 
   it('links unauthenticated visitors to login', () => {
-    expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
+    const wrapper = mountHome({ compact_home_enabled: true })
+
+    expect(compactDestination(wrapper)).toBe('/login')
+    expect(wrapper.get('[data-testid="compact-tutorial-cta"]').findComponent(RouterLinkStub).props('to')).toBe('/tutorial')
   })
 
   it('links authenticated users to their dashboard', () => {

@@ -40,6 +40,15 @@
           >
             <Icon name="book" size="md" />
           </a>
+          <router-link
+            v-else
+            to="/tutorial"
+            class="flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-2.5 text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
+            :title="t('home.viewDocs')"
+          >
+            <Icon name="book" size="md" />
+            <span class="hidden text-sm font-medium sm:inline">{{ t('home.tutorial') }}</span>
+          </router-link>
           <button
             class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
@@ -67,12 +76,23 @@
         />
         <h1 class="[overflow-wrap:anywhere] text-3xl font-bold md:text-4xl">{{ siteName }}</h1>
         <p class="mt-4 whitespace-pre-wrap [overflow-wrap:anywhere] text-base text-gray-600 dark:text-dark-300">{{ siteSubtitle }}</p>
-        <router-link
-          :to="isAuthenticated ? dashboardPath : '/login'"
-          class="mt-8 inline-flex min-h-10 items-center justify-center rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
-        >
-          {{ isAuthenticated ? t('home.goToDashboard') : t('home.login') }}
-        </router-link>
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <router-link
+            data-testid="compact-primary-cta"
+            :to="isAuthenticated ? dashboardPath : '/login'"
+            class="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+          >
+            {{ isAuthenticated ? t('home.goToDashboard') : t('home.login') }}
+          </router-link>
+          <router-link
+            data-testid="compact-tutorial-cta"
+            to="/tutorial"
+            class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 dark:hover:bg-dark-800"
+          >
+            <Icon name="book" size="sm" />
+            {{ t('home.tutorial') }}
+          </router-link>
+        </div>
       </div>
     </main>
 
@@ -131,6 +151,15 @@
           >
             <Icon name="book" size="md" />
           </a>
+          <router-link
+            v-else
+            to="/tutorial"
+            class="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('home.viewDocs')"
+          >
+            <Icon name="book" size="md" />
+            <span class="hidden text-sm font-medium md:inline">{{ t('home.tutorial') }}</span>
+          </router-link>
 
           <!-- Theme Toggle -->
           <button
@@ -195,14 +224,21 @@
               {{ siteSubtitle }}
             </p>
 
-            <!-- CTA Button -->
-            <div>
+            <!-- CTA Buttons -->
+            <div class="flex flex-wrap items-center justify-center gap-3 lg:justify-start">
               <router-link
                 :to="isAuthenticated ? dashboardPath : '/login'"
                 class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
               >
                 {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+              </router-link>
+              <router-link
+                to="/tutorial"
+                class="btn border border-gray-300 bg-white px-8 py-3 text-base text-gray-700 shadow-sm hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 dark:hover:bg-dark-800"
+              >
+                <Icon name="book" size="md" class="mr-2" />
+                {{ t('home.tutorial') }}
               </router-link>
             </div>
           </div>
@@ -459,6 +495,13 @@
           >
             {{ t('home.docs') }}
           </a>
+          <router-link
+            v-else
+            to="/tutorial"
+            class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
+          >
+            {{ t('home.docs') }}
+          </router-link>
           <a
             :href="githubUrl"
             target="_blank"
