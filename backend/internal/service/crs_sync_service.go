@@ -233,7 +233,11 @@ func (s *CRSSyncService) fetchCRSExport(ctx context.Context, baseURL, username, 
 		}
 		normalizedURL = normalized
 	} else {
-		normalized, err := urlvalidator.ValidateURLFormat(normalizedURL, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
+		normalized, err := urlvalidator.ValidateHTTPURL(
+			normalizedURL,
+			s.cfg.Security.URLAllowlist.AllowInsecureHTTP,
+			urlvalidator.ValidationOptions{AllowPrivate: s.cfg.Security.URLAllowlist.AllowPrivateHosts},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid base_url: %w", err)
 		}
@@ -245,7 +249,7 @@ func (s *CRSSyncService) fetchCRSExport(ctx context.Context, baseURL, username, 
 
 	client, err := httpclient.GetClient(httpclient.Options{
 		Timeout:            20 * time.Second,
-		ValidateResolvedIP: s.cfg.Security.URLAllowlist.Enabled,
+		ValidateResolvedIP: !s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 		AllowPrivateHosts:  s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})
 	if err != nil {
