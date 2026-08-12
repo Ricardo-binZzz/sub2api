@@ -20,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"go.uber.org/zap"
 )
 
@@ -935,18 +934,10 @@ func (s *PricingService) fetchRemoteHash() (string, error) {
 }
 
 func (s *PricingService) validatePricingURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid pricing url: %w", err)
-		}
-		return normalized, nil
+	if s.cfg == nil {
+		return "", fmt.Errorf("invalid pricing url: config is not available")
 	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
-		RequireAllowlist: true,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	normalized, err := validateOutboundURL(raw, s.cfg, s.cfg.Security.URLAllowlist.PricingHosts)
 	if err != nil {
 		return "", fmt.Errorf("invalid pricing url: %w", err)
 	}
