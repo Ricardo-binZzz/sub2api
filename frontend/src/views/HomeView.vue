@@ -479,6 +479,13 @@
           >
             {{ t('home.docs') }}
           </a>
+          <router-link
+            v-else
+            to="/tutorial"
+            class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
+          >
+            {{ t('home.docs') }}
+          </router-link>
           <a
             :href="githubUrl"
             target="_blank"
