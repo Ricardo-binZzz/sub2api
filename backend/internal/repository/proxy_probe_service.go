@@ -23,7 +23,7 @@ func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
 	if cfg != nil {
 		insecure = cfg.Security.ProxyProbe.InsecureSkipVerify
 		allowPrivate = cfg.Security.URLAllowlist.AllowPrivateHosts
-		validateResolvedIP = cfg.Security.URLAllowlist.Enabled
+		validateResolvedIP = !cfg.Security.URLAllowlist.AllowPrivateHosts
 		if cfg.Gateway.ProxyProbeResponseReadMaxBytes > 0 {
 			maxResponseBytes = cfg.Gateway.ProxyProbeResponseReadMaxBytes
 		}

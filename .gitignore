@@ -136,6 +136,7 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/BINAPI_AIHUB_GAP_ANALYSIS_2026-08-03.md
 !docs/legal/
 !docs/legal/*.md
 .serena/

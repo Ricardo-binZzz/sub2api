@@ -185,6 +185,15 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'modelPlaza.title'
     }
   },
+  {
+    path: '/tutorial',
+    name: 'Tutorial',
+    component: () => import('@/views/public/TutorialView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Bin API 使用教程'
+    }
+  },
 
   // ==================== User Routes ====================
   {

@@ -37,6 +37,14 @@
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
         </a>
+        <router-link
+          v-else
+          to="/tutorial"
+          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white sm:flex"
+        >
+          <Icon name="book" size="sm" />
+          <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
+        </router-link>
 
         <!-- Model Plaza Entry -->
         <router-link
