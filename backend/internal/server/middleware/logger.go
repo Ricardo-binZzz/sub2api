@@ -6,6 +6,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -77,6 +78,7 @@ func Logger() gin.HandlerFunc {
 		if model != "" {
 			fields = append(fields, zap.String("model", model))
 		}
+		fields = appendGatewayLatencyFields(c, fields)
 
 		l := logger.FromContext(c.Request.Context()).With(fields...)
 		l.Info("http request completed", zap.Time("completed_at", endTime))
@@ -85,4 +87,28 @@ func Logger() gin.HandlerFunc {
 			l.Warn("http request contains gin errors", zap.String("errors", c.Errors.String()))
 		}
 	}
+}
+
+func appendGatewayLatencyFields(c *gin.Context, fields []zap.Field) []zap.Field {
+	for _, metric := range []struct {
+		contextKey string
+		logField   string
+	}{
+		{service.OpsAuthLatencyMsKey, "auth_latency_ms"},
+		{service.OpsRoutingLatencyMsKey, "routing_latency_ms"},
+		{service.OpsUpstreamLatencyMsKey, "upstream_latency_ms"},
+		{service.OpsResponseLatencyMsKey, "response_latency_ms"},
+		{service.OpsTimeToFirstTokenMsKey, "time_to_first_token_ms"},
+	} {
+		value, ok := c.Get(metric.contextKey)
+		if !ok {
+			continue
+		}
+		latency, ok := value.(int64)
+		if !ok || latency < 0 {
+			continue
+		}
+		fields = append(fields, zap.Int64(metric.logField, latency))
+	}
+	return fields
 }

@@ -374,6 +374,30 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
+// Performance returns read-only group/account latency aggregates.
+// GET /api/v1/admin/usage/performance?period=24h|7d
+func (h *UsageHandler) Performance(c *gin.Context) {
+	now := time.Now().UTC()
+	period := strings.TrimSpace(c.DefaultQuery("period", "24h"))
+	var start time.Time
+	switch period {
+	case "24h":
+		start = now.Add(-24 * time.Hour)
+	case "7d":
+		start = now.Add(-7 * 24 * time.Hour)
+	default:
+		response.BadRequest(c, "Invalid period, use 24h or 7d")
+		return
+	}
+
+	report, err := h.usageService.GetUpstreamPerformance(c.Request.Context(), start, now)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, report)
+}
+
 // SearchUsers handles searching users by email keyword
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {

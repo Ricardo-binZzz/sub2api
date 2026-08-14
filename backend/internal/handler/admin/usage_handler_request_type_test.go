@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -15,9 +16,22 @@ import (
 
 type adminUsageRepoCapture struct {
 	service.UsageLogRepository
-	listParams   pagination.PaginationParams
-	listFilters  usagestats.UsageLogFilters
-	statsFilters usagestats.UsageLogFilters
+	listParams       pagination.PaginationParams
+	listFilters      usagestats.UsageLogFilters
+	statsFilters     usagestats.UsageLogFilters
+	performanceStart time.Time
+	performanceEnd   time.Time
+}
+
+func (s *adminUsageRepoCapture) GetUpstreamPerformance(_ context.Context, startTime, endTime time.Time) (*service.UpstreamPerformanceReport, error) {
+	s.performanceStart = startTime
+	s.performanceEnd = endTime
+	return &service.UpstreamPerformanceReport{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Groups:    []service.UpstreamPerformanceMetric{},
+		Accounts:  []service.UpstreamPerformanceMetric{},
+	}, nil
 }
 
 func (s *adminUsageRepoCapture) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters usagestats.UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
@@ -43,6 +57,7 @@ func newAdminUsageRequestTypeTestRouter(repo *adminUsageRepoCapture) *gin.Engine
 	router := gin.New()
 	router.GET("/admin/usage", handler.List)
 	router.GET("/admin/usage/stats", handler.Stats)
+	router.GET("/admin/usage/performance", handler.Performance)
 	return router
 }
 
@@ -177,4 +192,29 @@ func TestAdminUsageStatsInvalidStream(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAdminUsagePerformanceRejectsInvalidPeriod(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/performance?period=30d", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.True(t, repo.performanceStart.IsZero())
+}
+
+func TestAdminUsagePerformanceUsesSevenDayWindow(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/performance?period=7d", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 7*24*time.Hour, repo.performanceEnd.Sub(repo.performanceStart))
+	require.Equal(t, time.UTC, repo.performanceStart.Location())
 }
