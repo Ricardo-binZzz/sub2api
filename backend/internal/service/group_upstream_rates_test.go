@@ -54,8 +54,10 @@ func TestBuildGroupUpstreamRatesShowsDeclarationsWithoutConfiguredRateFallback(t
 func TestBuildGroupUpstreamRatesShowsPeakMaximum(t *testing.T) {
 	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 	account := groupUpstreamRateAccount(1, "peak", 0.2, now.Add(time.Hour))
-	probe := account.Extra[UpstreamBillingProbeExtraKey].(map[string]any)
-	data := probe["data"].(map[string]any)
+	probe, ok := account.Extra[UpstreamBillingProbeExtraKey].(map[string]any)
+	require.True(t, ok)
+	data, ok := probe["data"].(map[string]any)
+	require.True(t, ok)
 	data["peak_rate_enabled"] = true
 	data["peak_rate_multiplier"] = 1.5
 	data["peak_start"] = "00:00"
