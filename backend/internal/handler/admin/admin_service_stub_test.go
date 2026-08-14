@@ -383,6 +383,10 @@ func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) (
 	return nil, nil
 }
 
+func (s *stubAdminService) GetGroupUpstreamRates(_ context.Context, _ int64) (*service.GroupUpstreamRates, error) {
+	return nil, nil
+}
+
 func (s *stubAdminService) ClearGroupRateMultipliers(_ context.Context, _ int64) error {
 	return nil
 }

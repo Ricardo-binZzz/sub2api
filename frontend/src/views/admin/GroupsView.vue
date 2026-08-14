@@ -2301,6 +2301,93 @@
             class="input"
             data-tour="group-form-multiplier"
           />
+          <div
+            class="mt-2 overflow-hidden rounded border border-gray-200 text-xs dark:border-dark-600"
+          >
+            <div class="flex items-center justify-between gap-3 bg-gray-50 px-3 py-2 dark:bg-dark-700">
+              <span class="font-medium text-gray-700 dark:text-gray-200">
+                {{ t("admin.groups.upstreamRates.title") }}
+              </span>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 font-medium text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400"
+                :disabled="groupUpstreamRatesLoading || groupUpstreamRatesRefreshing"
+                :title="t('admin.groups.upstreamRates.refresh')"
+                @click="refreshGroupUpstreamRates"
+              >
+                <Icon
+                  name="refresh"
+                  size="sm"
+                  :class="{ 'animate-spin': groupUpstreamRatesRefreshing }"
+                />
+                {{ t("admin.groups.upstreamRates.refresh") }}
+              </button>
+            </div>
+            <div
+              v-if="groupUpstreamRatesLoading"
+              class="flex items-center gap-2 px-3 py-3 text-gray-500 dark:text-gray-400"
+            >
+              <Icon name="refresh" size="sm" class="animate-spin" />
+              {{ t("admin.groups.upstreamRates.loading") }}
+            </div>
+            <div
+              v-else-if="groupUpstreamRatesError"
+              class="flex items-center justify-between gap-2 px-3 py-3 text-amber-600 dark:text-amber-400"
+            >
+              <span>{{ t("admin.groups.upstreamRates.loadFailed") }}</span>
+              <button
+                type="button"
+                class="font-medium hover:underline"
+                @click="reloadGroupUpstreamRates"
+              >
+                {{ t("admin.groups.upstreamRates.retry") }}
+              </button>
+            </div>
+            <div
+              v-else-if="groupUpstreamRates?.accounts.length"
+              class="max-h-52 divide-y divide-gray-100 overflow-y-auto dark:divide-dark-600"
+            >
+              <div
+                v-for="account in groupUpstreamRates.accounts"
+                :key="account.account_id"
+                class="flex min-w-0 items-start justify-between gap-3 px-3 py-2"
+              >
+                <div class="min-w-0">
+                  <div class="truncate font-medium text-gray-700 dark:text-gray-200">
+                    {{ account.account_name }}
+                  </div>
+                  <div class="mt-0.5 text-gray-400 dark:text-gray-500">
+                    {{ groupUpstreamRateStatusLabel(account) }}
+                  </div>
+                </div>
+                <div class="shrink-0 text-right">
+                  <div
+                    v-if="account.declared_rate_multiplier != null"
+                    class="font-semibold text-primary-600 dark:text-primary-400"
+                  >
+                    {{ formatGroupUpstreamRate(account.declared_rate_multiplier) }}x
+                  </div>
+                  <div v-else class="text-gray-400 dark:text-gray-500">-</div>
+                  <div
+                    v-if="
+                      account.peak_rate_enabled &&
+                      account.peak_maximum_rate_multiplier != null
+                    "
+                    class="mt-0.5 text-amber-600 dark:text-amber-400"
+                  >
+                    {{ t("admin.groups.upstreamRates.peakMaximum", {
+                      rate: formatGroupUpstreamRate(
+                        account.peak_maximum_rate_multiplier,
+                      ),
+                    }) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="px-3 py-3 text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.upstreamRates.noAccounts") }}
+            </div>
+          </div>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -4375,6 +4462,10 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import type {
+  GroupUpstreamRateAccount,
+  GroupUpstreamRates,
+} from "@/api/admin/groups";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import { VueDraggable } from "vue-draggable-plus";
@@ -4844,6 +4935,11 @@ const showSortModal = ref(false);
 const submitting = ref(false);
 const sortSubmitting = ref(false);
 const editingGroup = ref<AdminGroup | null>(null);
+const groupUpstreamRates = ref<GroupUpstreamRates | null>(null);
+const groupUpstreamRatesLoading = ref(false);
+const groupUpstreamRatesRefreshing = ref(false);
+const groupUpstreamRatesError = ref(false);
+let groupUpstreamRatesRequestID = 0;
 const deletingGroup = ref<AdminGroup | null>(null);
 const duplicatingGroupIds = reactive(new Set<number>());
 const showRateMultipliersModal = ref(false);
@@ -6042,9 +6138,85 @@ const handleEdit = async (group: AdminGroup) => {
   );
   loadModelsListCandidates("edit", group.id, group.platform);
   showEditModal.value = true;
+  void loadGroupUpstreamRates(group.id);
+};
+
+const loadGroupUpstreamRates = async (groupID: number, clear = true) => {
+  const requestID = ++groupUpstreamRatesRequestID;
+  groupUpstreamRatesLoading.value = clear;
+  groupUpstreamRatesError.value = false;
+  if (clear) groupUpstreamRates.value = null;
+  try {
+    const rates = await adminAPI.groups.getGroupUpstreamRates(groupID);
+    if (
+      requestID === groupUpstreamRatesRequestID &&
+      editingGroup.value?.id === groupID
+    ) {
+      groupUpstreamRates.value = rates;
+    }
+  } catch (error) {
+    if (requestID === groupUpstreamRatesRequestID) {
+      groupUpstreamRatesError.value = true;
+    }
+    console.error("Error loading group upstream rates:", error);
+  } finally {
+    if (requestID === groupUpstreamRatesRequestID) {
+      groupUpstreamRatesLoading.value = false;
+    }
+  }
+};
+
+const reloadGroupUpstreamRates = () => {
+  if (editingGroup.value) {
+    void loadGroupUpstreamRates(editingGroup.value.id);
+  }
+};
+
+const refreshGroupUpstreamRates = async () => {
+  const group = editingGroup.value;
+  const accounts = groupUpstreamRates.value?.accounts ?? [];
+  if (!group || groupUpstreamRatesRefreshing.value) return;
+  groupUpstreamRatesRefreshing.value = true;
+  groupUpstreamRatesError.value = false;
+  try {
+    const accountIDs = accounts
+      .filter((account) => account.probe_supported)
+      .map((account) => account.account_id);
+    for (let offset = 0; offset < accountIDs.length; offset += 20) {
+      await adminAPI.accounts.probeUpstreamBillingBatch(
+        accountIDs.slice(offset, offset + 20),
+      );
+    }
+    await loadGroupUpstreamRates(group.id, false);
+  } catch (error) {
+    groupUpstreamRatesError.value = true;
+    console.error("Error refreshing group upstream rates:", error);
+  } finally {
+    groupUpstreamRatesRefreshing.value = false;
+  }
+};
+
+const formatGroupUpstreamRate = (value: number | undefined) =>
+  value == null ? "-" : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+
+const groupUpstreamRateStatusLabel = (account: GroupUpstreamRateAccount) => {
+  if (account.stale && account.declared_rate_multiplier != null) {
+    return t("admin.groups.upstreamRates.status.stale");
+  }
+  if (!account.probe_supported) {
+    return t("admin.groups.upstreamRates.status.notSupported");
+  }
+  return t(`admin.groups.upstreamRates.status.${account.probe_status}`, {
+    error: account.last_error || "-",
+  });
 };
 
 const closeEditModal = () => {
+  ++groupUpstreamRatesRequestID;
+  groupUpstreamRates.value = null;
+  groupUpstreamRatesLoading.value = false;
+  groupUpstreamRatesRefreshing.value = false;
+  groupUpstreamRatesError.value = false;
   editModelRoutingRules.value.forEach((rule) => {
     accountSearchRunner.clearKey(getEditRuleSearchKey(rule));
   });
