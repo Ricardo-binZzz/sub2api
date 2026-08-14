@@ -48,7 +48,9 @@ ORDER BY entity_type, requests DESC, entity_id`, metricSelect, metricSelect)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	report := &service.UpstreamPerformanceReport{
 		StartTime:   startTime,
