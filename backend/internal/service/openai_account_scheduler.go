@@ -1006,6 +1006,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
+	stickyEscapeCfg := openAIStickyEscapeConfig{}
+	if s != nil && s.service != nil {
+		stickyEscapeCfg = s.service.openAIStickyEscapeConfig()
+	}
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
@@ -1023,6 +1027,19 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 				}
 				for i, candidate := range ranked {
 					if candidate.account != nil && candidate.account.ID == stickyID {
+						// Keep an unhealthy sticky account as a fallback, but let a
+						// healthier candidate lead the next weighted selection attempt.
+						if s != nil {
+							if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(candidate.account.ID, stickyEscapeCfg); shouldEscape {
+								slog.Info("sticky_weighted_escape_triggered",
+									"account_id", candidate.account.ID,
+									"reason", reason,
+									"error_rate", errorRate,
+									"ttft", ttft,
+								)
+								continue
+							}
+						}
 						primary = append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
 						primary = append(primary, ranked[i+1:]...)
 						break
