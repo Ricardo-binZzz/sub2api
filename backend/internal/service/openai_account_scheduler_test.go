@@ -1128,6 +1128,32 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 	}
 }
 
+func TestDefaultOpenAIAccountScheduler_WeightedStickyEscapesSlowAccount(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	ttft := 20000
+	stats.report(37103, true, &ttft)
+
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: &OpenAIGatewayService{cfg: &config.Config{}},
+		stats:   stats,
+	}
+	plan := openAIAccountLoadPlan{
+		topK: 2,
+		candidates: []openAIAccountCandidateScore{
+			{account: &Account{ID: 37103}, loadInfo: &AccountLoadInfo{}, score: 1},
+			{account: &Account{ID: 37104}, loadInfo: &AccountLoadInfo{}, score: 10},
+		},
+	}
+
+	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+		StickyWeighted:  true,
+		StickyAccountID: 37103,
+		SessionHash:     "weighted-sticky-slow-account",
+	}, plan)
+	require.Len(t, order, 2)
+	require.Equal(t, int64(37104), order[0].account.ID)
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedPreviousRequiresMovableContext(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 
