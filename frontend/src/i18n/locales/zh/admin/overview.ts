@@ -875,6 +875,23 @@ export default {
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
       rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      upstreamRates: {
+        title: '组内账号上游声明倍率',
+        loading: '正在读取上游声明倍率...',
+        loadFailed: '读取上游声明倍率失败',
+        retry: '重试',
+        refresh: '实时探测',
+        noAccounts: '当前分组没有关联账号。',
+        peakMaximum: '峰值最高 {rate}x',
+        status: {
+          ok: '探测正常',
+          unsupported: '上游不支持倍率声明',
+          failed: '探测失败：{error}',
+          not_probed: '尚未探测',
+          stale: '声明已过期，建议重新探测',
+          notSupported: '该账号类型不支持探测'
+        }
+      },
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',

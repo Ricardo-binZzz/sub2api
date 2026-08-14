@@ -340,6 +340,39 @@ export interface GroupRateMultiplierEntry {
   rpm_override?: number | null
 }
 
+export interface GroupUpstreamRateAccount {
+  account_id: number
+  account_name: string
+  platform: string
+  status: string
+  schedulable: boolean
+  probe_supported: boolean
+  probe_status: 'ok' | 'unsupported' | 'failed' | 'not_probed' | string
+  declared_rate_multiplier?: number
+  effective_rate_multiplier?: number
+  peak_maximum_rate_multiplier?: number
+  peak_rate_enabled: boolean
+  peak_rate_multiplier?: number
+  received_at?: string
+  fresh_until?: string
+  last_attempt_at?: string
+  stale: boolean
+  last_error?: string
+}
+
+export interface GroupUpstreamRates {
+  group_id: number
+  accounts: GroupUpstreamRateAccount[]
+}
+
+/** Read the latest upstream declaration snapshots for the accounts in a group. */
+export async function getGroupUpstreamRates(id: number): Promise<GroupUpstreamRates> {
+  const { data } = await apiClient.get<GroupUpstreamRates>(
+    `/admin/groups/${id}/upstream-rates`
+  )
+  return data
+}
+
 /**
  * Get rate multipliers for users in a group
  * @param id - Group ID
@@ -493,6 +526,7 @@ export const groupsAPI = {
   updateCompositeRoute,
   deleteCompositeRoute,
   previewCompositeRoute,
+  getGroupUpstreamRates,
   getGroupRateMultipliers,
   clearGroupRateMultipliers,
   batchSetGroupRateMultipliers,

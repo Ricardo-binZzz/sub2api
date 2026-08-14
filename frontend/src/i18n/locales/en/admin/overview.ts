@@ -893,6 +893,23 @@ export default {
       groupUpdatedSuccess: 'Group updated successfully',
       groupDeletedSuccess: 'Group deleted successfully',
       rateMultiplierHint: 'Cost multiplier for this group (e.g., 1.5 = 150% of base cost)',
+      upstreamRates: {
+        title: 'Upstream rates for group accounts',
+        loading: 'Loading upstream rate declarations...',
+        loadFailed: 'Failed to load upstream rate declarations',
+        retry: 'Retry',
+        refresh: 'Probe now',
+        noAccounts: 'There are no accounts in this group.',
+        peakMaximum: 'Peak maximum {rate}x',
+        status: {
+          ok: 'Probe healthy',
+          unsupported: 'Upstream does not declare a rate',
+          failed: 'Probe failed: {error}',
+          not_probed: 'Not probed yet',
+          stale: 'Declaration is stale; probe again',
+          notSupported: 'This account type cannot be probed'
+        }
+      },
       exclusiveHint: 'Exclusive group, manually assign to specific users',
       exclusiveTooltip: {
         title: 'What is an exclusive group?',

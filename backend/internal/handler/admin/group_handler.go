@@ -806,6 +806,23 @@ func (h *GroupHandler) GetGroupRateMultipliers(c *gin.Context) {
 	response.Success(c, entries)
 }
 
+// GetGroupUpstreamRates returns the latest upstream declarations for accounts in a group.
+// GET /api/v1/admin/groups/:id/upstream-rates
+func (h *GroupHandler) GetGroupUpstreamRates(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+
+	rates, err := h.adminService.GetGroupUpstreamRates(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, rates)
+}
+
 // ClearGroupRateMultipliers handles clearing all rate multipliers for a group
 // DELETE /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) ClearGroupRateMultipliers(c *gin.Context) {
