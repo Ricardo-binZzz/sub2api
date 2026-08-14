@@ -93,6 +93,32 @@ export interface AdminUsageQueryParams extends UsageQueryParams {
   status_code?: number | null
 }
 
+export interface UpstreamPerformanceMetric {
+  id: number
+  name: string
+  platform?: string
+  requests: number
+  successful: number
+  success_rate: number
+  first_token_p50_ms?: number | null
+  first_token_p95_ms?: number | null
+  duration_p50_ms?: number | null
+  duration_p95_ms?: number | null
+}
+
+export interface UpstreamPerformanceReport {
+  start_time: string
+  end_time: string
+  generated_at: string
+  groups: UpstreamPerformanceMetric[]
+  accounts: UpstreamPerformanceMetric[]
+  thresholds: {
+    first_token_p50_warning_ms: number
+    first_token_p95_warning_ms: number
+    success_rate_warning: number
+  }
+}
+
 // ==================== API Functions ====================
 
 /**
@@ -133,6 +159,13 @@ export async function getStats(params: {
 }): Promise<AdminUsageStatsResponse> {
   const { data } = await apiClient.get<AdminUsageStatsResponse>('/admin/usage/stats', {
     params
+  })
+  return data
+}
+
+export async function getPerformance(period: '24h' | '7d' = '24h'): Promise<UpstreamPerformanceReport> {
+  const { data } = await apiClient.get<UpstreamPerformanceReport>('/admin/usage/performance', {
+    params: { period }
   })
   return data
 }
@@ -209,6 +242,7 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
 export const adminUsageAPI = {
   list,
   getStats,
+  getPerformance,
   searchUsers,
   searchApiKeys,
   listCleanupTasks,

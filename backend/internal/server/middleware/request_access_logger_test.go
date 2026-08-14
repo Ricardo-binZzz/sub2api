@@ -10,12 +10,53 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type testLogSink struct {
 	mu     sync.Mutex
 	events []*logger.LogEvent
+}
+
+func TestLogger_AccessLogIncludesGatewayStageLatencies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sink := initMiddlewareTestLogger(t)
+
+	r := gin.New()
+	r.Use(Logger())
+	r.GET("/v1/responses", func(c *gin.Context) {
+		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, 12)
+		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, 7)
+		service.SetOpsLatencyMs(c, service.OpsUpstreamLatencyMsKey, 1450)
+		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, 3)
+		service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, 1472)
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	r.ServeHTTP(w, req)
+
+	for _, event := range sink.list() {
+		if event == nil || event.Message != "http request completed" {
+			continue
+		}
+		for field, want := range map[string]int64{
+			"auth_latency_ms":        12,
+			"routing_latency_ms":     7,
+			"upstream_latency_ms":    1450,
+			"response_latency_ms":    3,
+			"time_to_first_token_ms": 1472,
+		} {
+			got, ok := event.Fields[field].(int64)
+			if !ok || got != want {
+				t.Fatalf("%s=%v (%T), want %d", field, event.Fields[field], event.Fields[field], want)
+			}
+		}
+		return
+	}
+	t.Fatal("access log event not found")
 }
 
 func (s *testLogSink) WriteLogEvent(event *logger.LogEvent) {

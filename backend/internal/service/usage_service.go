@@ -461,3 +461,17 @@ func (s *UsageService) GetStatsWithFilters(ctx context.Context, filters usagesta
 	}
 	return stats, nil
 }
+
+// upstreamPerformanceReader is optional so lightweight test repositories do
+// not need to implement the reporting-only aggregate.
+type upstreamPerformanceReader interface {
+	GetUpstreamPerformance(context.Context, time.Time, time.Time) (*UpstreamPerformanceReport, error)
+}
+
+func (s *UsageService) GetUpstreamPerformance(ctx context.Context, startTime, endTime time.Time) (*UpstreamPerformanceReport, error) {
+	reader, ok := s.usageRepo.(upstreamPerformanceReader)
+	if !ok {
+		return nil, fmt.Errorf("upstream performance reporting is unavailable")
+	}
+	return reader.GetUpstreamPerformance(ctx, startTime, endTime)
+}

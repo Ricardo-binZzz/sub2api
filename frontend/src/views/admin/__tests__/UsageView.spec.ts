@@ -4,7 +4,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
+const { list, exportList, getStats, getPerformance, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -13,8 +13,9 @@ const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listE
 
   return {
     list: vi.fn(),
-		exportList: vi.fn(),
+    exportList: vi.fn(),
     getStats: vi.fn(),
+    getPerformance: vi.fn(),
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
     getModelStats: vi.fn(),
@@ -66,7 +67,8 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/admin/usage', () => ({
   adminUsageAPI: {
-		list: exportList,
+    list: exportList,
+    getPerformance,
   },
 }))
 
@@ -613,7 +615,7 @@ describe('admin UsageView ranking tab', () => {
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(3)
+    expect(tabs).toHaveLength(4)
     await tabs[2].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
@@ -626,6 +628,47 @@ describe('admin UsageView ranking tab', () => {
     expect((wrapper.vm as any).activeTab).toBe('usage')
     expect((wrapper.vm as any).filters.user_id).toBe(5)
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ user_id: 5 }), expect.anything())
+  })
+})
+
+describe('admin UsageView performance tab', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockReset().mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+    getPerformance.mockReset().mockResolvedValue({ groups: [], accounts: [], thresholds: {} })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('loads performance data only after the performance tab is opened', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        UpstreamPerformancePanel: true,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(getPerformance).not.toHaveBeenCalled()
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[3].trigger('click')
+    await flushPromises()
+
+    expect(getPerformance).toHaveBeenCalledOnce()
+    expect(getPerformance).toHaveBeenCalledWith('24h')
   })
 })
 
