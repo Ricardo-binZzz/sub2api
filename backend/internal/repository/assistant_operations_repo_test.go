@@ -13,7 +13,7 @@ import (
 func TestOperationRepositoryBeginTaskRunClaimsAtomically(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	columns := []string{
@@ -41,7 +41,7 @@ WHERE id=$1 AND status IN ('approved','failed') AND scheduled_at<=NOW() AND atte
 func TestOperationRepositoryDefersWithoutIncrementingAttempts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	at := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
 	query := `UPDATE assistant_operation_tasks SET scheduled_at=$2,last_error=$3,updated_at=NOW()

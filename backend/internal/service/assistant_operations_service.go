@@ -485,7 +485,7 @@ func (s *AssistantOperationsService) jsonRequest(ctx context.Context, method, ra
 	if e != nil {
 		return errors.New("external platform request failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, e := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	if e != nil {
 		return errors.New("external platform response could not be read")

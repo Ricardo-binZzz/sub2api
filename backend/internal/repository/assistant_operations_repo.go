@@ -23,7 +23,7 @@ func (r *operationRepository) ListConnections(ctx context.Context) ([]*service.O
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]*service.OperationConnectionRecord, 0)
 	for rows.Next() {
 		item, err := scanOperationConnection(rows)
@@ -110,7 +110,7 @@ func (r *operationRepository) ListTasks(ctx context.Context, page, size int) ([]
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]*service.OperationTask, 0)
 	for rows.Next() {
 		v, e := scanOperationTask(rows)
@@ -143,7 +143,7 @@ func (r *operationRepository) BeginTaskRun(ctx context.Context, id int64) (*serv
 	if err != nil {
 		return nil, 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	task, err := scanOperationTask(tx.QueryRowContext(ctx, `UPDATE assistant_operation_tasks SET status='running',attempts=attempts+1,updated_at=NOW()
 WHERE id=$1 AND status IN ('approved','failed') AND scheduled_at<=NOW() AND attempts<max_attempts RETURNING `+operationTaskColumns, id))
@@ -168,7 +168,7 @@ WHERE status IN ('approved','failed') AND scheduled_at<=NOW() AND attempts<max_a
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	ids := make([]int64, 0)
 	for rows.Next() {
 		var id int64
@@ -184,7 +184,7 @@ func (r *operationRepository) CompleteTask(ctx context.Context, taskID, runID in
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	status := "failed"
 	if success {
 		status = "succeeded"
@@ -211,7 +211,7 @@ func (r *operationRepository) ListRuns(ctx context.Context, page, size int) ([]*
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]*service.OperationRun, 0)
 	for rows.Next() {
 		var v service.OperationRun

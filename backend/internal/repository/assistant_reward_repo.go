@@ -106,7 +106,7 @@ FROM assistant_reward_decisions ORDER BY created_at DESC, id DESC LIMIT $1 OFFSE
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]*service.AssistantRewardDecision, 0)
 	for rows.Next() {
 		item, err := scanAssistantReward(rows)

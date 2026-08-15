@@ -104,7 +104,7 @@ func TestAssistantOperationsExecutionPolicyBoundaries(t *testing.T) {
 	}{
 		{name: "daily budget", hour: 12, count: 3, want: "daily budget"},
 		{name: "quiet hours", hour: 23, want: "quiet hours"},
-		{name: "minimum publish interval", hour: 12, last: timePtr(now.Add(-30 * time.Minute)), want: "publish interval"},
+		{name: "minimum publish interval", hour: 12, last: assistantTimePtr(now.Add(-30 * time.Minute)), want: "publish interval"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,4 +159,4 @@ func TestAssistantOperationsValidationAndRedaction(t *testing.T) {
 	require.False(t, strings.Contains(message, secret))
 }
 
-func timePtr(value time.Time) *time.Time { return &value }
+func assistantTimePtr(value time.Time) *time.Time { return &value }
