@@ -33,6 +33,22 @@ func RegisterAdminRoutes(
 		{
 			assistant.GET("/status", h.Assistant.Status)
 			assistant.POST("/chat", h.Assistant.ChatAdmin)
+			assistant.GET("/rewards", h.Assistant.ListRewards)
+			assistant.GET("/operations/summary", h.Assistant.OperationsSummary)
+			assistant.GET("/operations/connections", h.Assistant.ListOperationConnections)
+			assistant.POST("/operations/connections", h.Assistant.SaveOperationConnection)
+			assistant.PUT("/operations/connections/:id", h.Assistant.UpdateOperationConnection)
+			assistant.DELETE("/operations/connections/:id", h.Assistant.DeleteOperationConnection)
+			assistant.POST("/operations/connections/:id/test", h.Assistant.TestOperationConnection)
+			assistant.GET("/operations/policy", h.Assistant.GetOperationPolicy)
+			assistant.PUT("/operations/policy", h.Assistant.UpdateOperationPolicy)
+			assistant.GET("/operations/tasks", h.Assistant.ListOperationTasks)
+			assistant.POST("/operations/tasks", h.Assistant.CreateOperationTask)
+			assistant.POST("/operations/tasks/:id/approve", h.Assistant.ApproveOperationTask)
+			assistant.POST("/operations/tasks/:id/run", h.Assistant.RunOperationTask)
+			assistant.POST("/operations/tasks/:id/cancel", h.Assistant.CancelOperationTask)
+			assistant.GET("/operations/runs", h.Assistant.ListOperationRuns)
+			assistant.POST("/operations/plan-now", h.Assistant.PlanOperationsNow)
 		}
 
 		// 部署与运营合规确认

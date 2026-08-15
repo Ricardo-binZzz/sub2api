@@ -158,6 +158,7 @@ export default {
   // Navigation
   nav: {
     assistant: 'AI 助手',
+    assistantOperations: 'AI 运营',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

@@ -78,6 +78,8 @@ func RegisterUserRoutes(
 		{
 			assistant.GET("/status", h.Assistant.Status)
 			assistant.POST("/chat", h.Assistant.ChatUser)
+			assistant.GET("/reward", h.Assistant.RewardStatus)
+			assistant.POST("/reward/apply", h.Assistant.ApplyReward)
 		}
 
 		// API Key管理

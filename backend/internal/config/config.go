@@ -102,15 +102,19 @@ type Config struct {
 	Assistant               AssistantConfig               `mapstructure:"assistant"`
 }
 
-// AssistantConfig configures the optional, read-only in-site assistant.
+// AssistantConfig configures the optional in-site assistant and its bounded reward campaign.
 type AssistantConfig struct {
-	Enabled          bool   `mapstructure:"enabled"`
-	BaseURL          string `mapstructure:"base_url"`
-	APIKey           string `mapstructure:"api_key"`
-	Model            string `mapstructure:"model"`
-	TimeoutSeconds   int    `mapstructure:"timeout_seconds"`
-	MaxQuestionChars int    `mapstructure:"max_question_chars"`
-	MaxContextBytes  int    `mapstructure:"max_context_bytes"`
+	Enabled                    bool    `mapstructure:"enabled"`
+	BaseURL                    string  `mapstructure:"base_url"`
+	APIKey                     string  `mapstructure:"api_key"`
+	Model                      string  `mapstructure:"model"`
+	TimeoutSeconds             int     `mapstructure:"timeout_seconds"`
+	MaxQuestionChars           int     `mapstructure:"max_question_chars"`
+	MaxContextBytes            int     `mapstructure:"max_context_bytes"`
+	RewardsEnabled             bool    `mapstructure:"rewards_enabled"`
+	RewardMaxAmount            float64 `mapstructure:"reward_max_amount"`
+	RewardEligibilityDays      int     `mapstructure:"reward_eligibility_days"`
+	RewardMinAccountAgeMinutes int     `mapstructure:"reward_min_account_age_minutes"`
 }
 
 type LogConfig struct {
@@ -1917,6 +1921,10 @@ func setDefaults() {
 	viper.SetDefault("assistant.timeout_seconds", 30)
 	viper.SetDefault("assistant.max_question_chars", 2000)
 	viper.SetDefault("assistant.max_context_bytes", 32*1024)
+	viper.SetDefault("assistant.rewards_enabled", false)
+	viper.SetDefault("assistant.reward_max_amount", 1.0)
+	viper.SetDefault("assistant.reward_eligibility_days", 30)
+	viper.SetDefault("assistant.reward_min_account_age_minutes", 60)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

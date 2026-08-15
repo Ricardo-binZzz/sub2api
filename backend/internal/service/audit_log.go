@@ -38,6 +38,7 @@ const (
 	AuditActionStepUpVerify           = "auth.step_up.verify"
 	AuditActionAuditLogClear          = "admin.audit_log.clear"
 	AuditActionAssistantChat          = "assistant.chat"
+	AuditActionAssistantRewardApply   = "assistant.reward.apply"
 )
 
 // AuditLog 一条管理面操作审计记录。
