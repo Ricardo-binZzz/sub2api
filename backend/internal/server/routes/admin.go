@@ -31,6 +31,13 @@ func RegisterAdminRoutes(
 	admin.Use(gin.HandlerFunc(auditLog))
 	admin.Use(middleware.AdminComplianceGuard(settingService))
 	{
+		assistant := admin.Group("/assistant")
+		assistant.Use(panelRateLimiter.Heavy())
+		{
+			assistant.GET("/status", h.Assistant.Status)
+			assistant.POST("/chat", h.Assistant.ChatAdmin)
+		}
+
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
 

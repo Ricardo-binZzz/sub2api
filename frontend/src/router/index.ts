@@ -213,6 +213,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/assistant',
+    name: 'Assistant',
+    component: () => import('@/views/user/AssistantView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'AI Assistant',
+      titleKey: 'assistant.title'
+    }
+  },
+  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),

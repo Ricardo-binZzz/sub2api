@@ -101,6 +101,25 @@ webauthn:
 run_mode: "standard"
 
 # =============================================================================
+# In-site AI Assistant (Optional, Read-only)
+# 站内 AI 助手（可选，只读）
+# =============================================================================
+assistant:
+  # The assistant stays hidden until all required provider fields are configured.
+  # 配齐模型服务必填项后助手才会启用。
+  enabled: false
+  # OpenAI-compatible API root ending in /v1 (not the chat/completions endpoint).
+  # 兼容 OpenAI 的 API 根地址，以 /v1 结尾（不要填写 chat/completions）。
+  base_url: "https://api.openai.com/v1"
+  api_key: ""
+  model: ""
+  timeout_seconds: 30
+  max_question_chars: 2000
+  # Maximum serialized station context sent with one request (bytes).
+  # 单次请求发送给模型的站点上下文上限（字节）。
+  max_context_bytes: 32768
+
+# =============================================================================
 # CORS Configuration
 # 跨域资源共享 (CORS) 配置
 # =============================================================================
