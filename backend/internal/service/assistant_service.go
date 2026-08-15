@@ -492,7 +492,7 @@ func (s *AssistantService) callProvider(ctx context.Context, messages []map[stri
 	if err != nil {
 		return "", fmt.Errorf("assistant provider request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, assistantResponseLimit+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
