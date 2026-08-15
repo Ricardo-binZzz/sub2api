@@ -102,6 +102,18 @@ services:
       - SETUP_MIGRATION_TIMEOUT_SECONDS=${SETUP_MIGRATION_TIMEOUT_SECONDS:-0}
 
       # =======================================================================
+      # In-site AI Assistant (optional)
+      # =======================================================================
+      - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-false}
+      - ASSISTANT_BASE_URL=${ASSISTANT_BASE_URL:-https://api.openai.com/v1}
+      - ASSISTANT_API_KEY=${ASSISTANT_API_KEY:-}
+      - ASSISTANT_MODEL=${ASSISTANT_MODEL:-}
+      - ASSISTANT_REWARDS_ENABLED=${ASSISTANT_REWARDS_ENABLED:-false}
+      - ASSISTANT_REWARD_MAX_AMOUNT=${ASSISTANT_REWARD_MAX_AMOUNT:-1.0}
+      - ASSISTANT_REWARD_ELIGIBILITY_DAYS=${ASSISTANT_REWARD_ELIGIBILITY_DAYS:-30}
+      - ASSISTANT_REWARD_MIN_ACCOUNT_AGE_MINUTES=${ASSISTANT_REWARD_MIN_ACCOUNT_AGE_MINUTES:-60}
+
+      # =======================================================================
       # TOTP (2FA) Configuration
       # =======================================================================
       # IMPORTANT: Set a fixed encryption key for TOTP secrets. If left empty,

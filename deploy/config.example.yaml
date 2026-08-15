@@ -118,6 +118,13 @@ assistant:
   # Maximum serialized station context sent with one request (bytes).
   # 单次请求发送给模型的站点上下文上限（字节）。
   max_context_bytes: 32768
+  # Optional one-time new-user reward. The model only recommends an amount;
+  # deterministic rules and a database transaction make the final decision.
+  # 可选的一次性新用户奖励；模型只建议额度，最终由固定规则和数据库事务决定。
+  rewards_enabled: false
+  reward_max_amount: 1.0
+  reward_eligibility_days: 30
+  reward_min_account_age_minutes: 60
 
 # =============================================================================
 # CORS Configuration
