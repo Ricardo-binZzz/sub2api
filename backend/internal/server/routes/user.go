@@ -72,6 +72,14 @@ func RegisterUserRoutes(
 			}
 		}
 
+		// 站内 AI 助手
+		assistant := authenticated.Group("/assistant")
+		assistant.Use(panelRateLimiter.Heavy())
+		{
+			assistant.GET("/status", h.Assistant.Status)
+			assistant.POST("/chat", h.Assistant.ChatUser)
+		}
+
 		// API Key管理
 		keys := authenticated.Group("/keys")
 		{

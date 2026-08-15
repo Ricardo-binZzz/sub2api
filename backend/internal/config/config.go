@@ -99,6 +99,18 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	Assistant               AssistantConfig               `mapstructure:"assistant"`
+}
+
+// AssistantConfig configures the optional, read-only in-site assistant.
+type AssistantConfig struct {
+	Enabled          bool   `mapstructure:"enabled"`
+	BaseURL          string `mapstructure:"base_url"`
+	APIKey           string `mapstructure:"api_key"`
+	Model            string `mapstructure:"model"`
+	TimeoutSeconds   int    `mapstructure:"timeout_seconds"`
+	MaxQuestionChars int    `mapstructure:"max_question_chars"`
+	MaxContextBytes  int    `mapstructure:"max_context_bytes"`
 }
 
 type LogConfig struct {
@@ -1898,6 +1910,13 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("assistant.enabled", false)
+	viper.SetDefault("assistant.base_url", "https://api.openai.com/v1")
+	viper.SetDefault("assistant.api_key", "")
+	viper.SetDefault("assistant.model", "")
+	viper.SetDefault("assistant.timeout_seconds", 30)
+	viper.SetDefault("assistant.max_question_chars", 2000)
+	viper.SetDefault("assistant.max_context_bytes", 32*1024)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
