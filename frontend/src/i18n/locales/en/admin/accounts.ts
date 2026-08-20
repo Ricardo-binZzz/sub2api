@@ -792,6 +792,17 @@ export default {
         invalidValue: 'Invalid header value (control characters are not allowed; max length 8192)',
         tooManyEntries: 'Too many header override entries (max 64)'
       },
+      requestParameterPolicy: {
+        title: 'Request Parameter Policy',
+        hint: 'Apply a small allowlist of account-level overrides to OpenAI-compatible Responses requests.',
+        reasoningEffort: 'Reasoning effort',
+        maxOutputTokens: 'Maximum output tokens',
+        serviceTier: 'Service tier',
+        store: 'Upstream storage',
+        keepClient: 'Keep client setting',
+        protectedHint: 'Model, input/messages, tools, streaming, authentication, and Prompt Cache keys are protected and cannot be overridden here.',
+        invalidMaxOutputTokens: 'Maximum output tokens must be an integer between 1 and 1000000'
+      },
       grokCustomBaseUrl: {
         title: 'Custom Upstream URL',
         hint: 'When enabled, account traffic (chat/media/probes) is forwarded to the specified address. OAuth authorization and token refresh are unaffected and stay on the official endpoints.',

@@ -800,10 +800,21 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		submitResponsesUsage(result)
-		reqLog.Debug("openai.request_completed",
+		completionFields := []zap.Field{
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
-		)
+		}
+		if result != nil {
+			completionFields = append(completionFields,
+				zap.Int("input_tokens", result.Usage.InputTokens),
+				zap.Int("cache_creation_tokens", result.Usage.CacheCreationInputTokens),
+				zap.Int("cache_read_tokens", result.Usage.CacheReadInputTokens),
+			)
+			if rate, ok := service.PromptCacheRate(int64(result.Usage.InputTokens), int64(result.Usage.CacheCreationInputTokens), int64(result.Usage.CacheReadInputTokens)); ok {
+				completionFields = append(completionFields, zap.Float64("prompt_cache_hit_rate", rate))
+			}
+		}
+		reqLog.Debug("openai.request_completed", completionFields...)
 		return
 	}
 }

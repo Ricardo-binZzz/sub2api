@@ -21,6 +21,38 @@ vi.mock('@/composables/useClipboard', () => ({
 import UseKeyModal from '../UseKeyModal.vue'
 
 describe('UseKeyModal', () => {
+  it('generates Python, Node.js, and curl Responses examples for OpenAI groups', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-sdk-test',
+        baseUrl: 'https://example.com',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+
+    const sdkTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.openaiSdk')
+    )
+    expect(sdkTab).toBeDefined()
+    await sdkTab!.trigger('click')
+    await nextTick()
+
+    const files = wrapper.findAll('pre code').map((code) => code.text())
+    expect(files).toHaveLength(3)
+    expect(files.join('\n')).toContain('base_url="https://example.com/v1"')
+    expect(files.join('\n')).toContain('baseURL: "https://example.com/v1"')
+    expect(files.join('\n')).toContain('https://example.com/v1/responses')
+    expect(files.join('\n')).toContain('model="gpt-5.5"')
+    expect(wrapper.find('nav[aria-label="Tabs"]').exists()).toBe(false)
+  })
+
   it('renders Grok Build and OpenCode setup for Grok groups', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

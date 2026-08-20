@@ -155,7 +155,12 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        openaiSdk: 'OpenAI SDK',
         opencode: 'OpenCode'
+      },
+      sdk: {
+        description: '使用当前密钥生成 OpenAI Python SDK、Node.js SDK 和 curl 请求示例。',
+        secretHint: '示例包含当前 API Key，请勿提交到项目仓库或发送给其他人。'
       },
       antigravity: {
         description: '为 Antigravity 分组配置 API 访问。请根据您使用的客户端选择对应的配置方式。',
@@ -342,6 +347,33 @@ export default {
     cacheHit: '缓存命中',
     cacheCreate: '缓存创建',
     cacheHitRate: '缓存命中率',
+    cacheAnalysis: {
+      title: 'Prompt Cache 分析',
+      subtitle: '按当前时间范围和筛选条件统计',
+      tokenHitRate: 'Token 命中率',
+      reuseRatio: '缓存读写复用比',
+      cacheReadVolume: '缓存读取量',
+      cacheWriteVolume: '缓存创建量',
+      promptTokens: '提示词 Token',
+      diagnosis: '诊断',
+      noData: '当前范围没有可分析的提示词 Token',
+      status: {
+        no_data: '暂无数据',
+        inactive: '未使用缓存',
+        low: '命中偏低',
+        churn: '缓存频繁重建',
+        fair: '仍有优化空间',
+        good: '缓存表现良好'
+      },
+      description: {
+        no_data: '当前筛选范围内没有可用于缓存分析的 Token。',
+        inactive: '请求没有产生缓存读取或创建记录，请检查上游模型是否支持缓存以及缓存策略是否启用。',
+        low: '已经出现缓存读取，但命中占提示词 Token 的比例偏低。建议检查稳定前缀、缓存键和账号粘性。',
+        churn: '缓存创建量高于读取量，缓存可能尚未被充分复用。建议减少提示词前缀变化并避免会话频繁切换账号。',
+        fair: '缓存已经产生有效复用，但仍可通过稳定提示词前缀和会话路由继续提高。',
+        good: '大部分提示词 Token 已由缓存读取，当前策略整体有效。'
+      }
+    },
     inputTokenPrice: '输入单价',
     outputTokenPrice: '输出单价',
     perMillionTokens: '/ 1M Token',

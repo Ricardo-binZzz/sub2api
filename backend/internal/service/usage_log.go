@@ -211,6 +211,19 @@ func (u *UsageLog) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
 }
 
+// PromptCacheRate returns the upstream prompt-cache read ratio. InputTokens
+// excludes cache reads for providers that report them separately, so the
+// denominator must include cache creation and cache read tokens as well.
+// The second return value is false when the provider supplied no cacheable
+// input token data.
+func PromptCacheRate(inputTokens, cacheCreationTokens, cacheReadTokens int64) (float64, bool) {
+	denominator := inputTokens + cacheCreationTokens + cacheReadTokens
+	if denominator <= 0 {
+		return 0, false
+	}
+	return float64(cacheReadTokens) / float64(denominator), true
+}
+
 func (u *UsageLog) EffectiveRequestType() RequestType {
 	if u == nil {
 		return RequestTypeUnknown

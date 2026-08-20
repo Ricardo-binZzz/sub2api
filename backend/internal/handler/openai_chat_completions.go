@@ -392,10 +392,21 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		submitChatUsage(result)
-		reqLog.Debug("openai_chat_completions.request_completed",
+		completionFields := []zap.Field{
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),
-		)
+		}
+		if result != nil {
+			completionFields = append(completionFields,
+				zap.Int("input_tokens", result.Usage.InputTokens),
+				zap.Int("cache_creation_tokens", result.Usage.CacheCreationInputTokens),
+				zap.Int("cache_read_tokens", result.Usage.CacheReadInputTokens),
+			)
+			if rate, ok := service.PromptCacheRate(int64(result.Usage.InputTokens), int64(result.Usage.CacheCreationInputTokens), int64(result.Usage.CacheReadInputTokens)); ok {
+				completionFields = append(completionFields, zap.Float64("prompt_cache_hit_rate", rate))
+			}
+		}
+		reqLog.Debug("openai_chat_completions.request_completed", completionFields...)
 		return
 	}
 }

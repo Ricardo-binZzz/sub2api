@@ -1325,8 +1325,8 @@ func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelM
 		m.ErrorRate = float64(a.errors) / float64(requests)
 		m.SuccessRate = float64(a.success) / float64(requests)
 	}
-	if denom > 0 {
-		m.CacheRate = float64(a.cacheRead) / float64(denom)
+	if rate, ok := service.PromptCacheRate(a.input, a.cacheCreation, a.cacheRead); ok {
+		m.CacheRate = rate
 	}
 	if admin {
 		affected, attempts := a.upstreamAffected, a.upstreamAttempts

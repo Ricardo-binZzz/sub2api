@@ -343,6 +343,7 @@ const clientTabs = computed((): TabConfig[] => {
       const tabs: TabConfig[] = [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'codex-ws', label: t('keys.useKeyModal.cliTabs.codexCliWs'), icon: TerminalIcon },
+        { id: 'sdk', label: t('keys.useKeyModal.cliTabs.openaiSdk'), icon: TerminalIcon },
       ]
       if (props.allowMessagesDispatch) {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
@@ -366,6 +367,7 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'grok', label: t('keys.useKeyModal.cliTabs.grokCli'), icon: TerminalIcon },
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+        { id: 'sdk', label: t('keys.useKeyModal.cliTabs.openaiSdk'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     default:
@@ -389,7 +391,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => !['opencode', 'sdk'].includes(activeClientTab.value))
 
 const showCodexAuthMode = computed(() =>
   props.platform === 'openai' &&
@@ -407,6 +409,9 @@ const currentTabs = computed(() => {
 const platformDescription = computed(() => {
   switch (props.platform) {
     case 'openai':
+      if (activeClientTab.value === 'sdk') {
+        return t('keys.useKeyModal.sdk.description')
+      }
       if (activeClientTab.value === 'claude') {
         return t('keys.useKeyModal.description')
       }
@@ -416,6 +421,9 @@ const platformDescription = computed(() => {
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
     case 'grok':
+      if (activeClientTab.value === 'sdk') {
+        return t('keys.useKeyModal.sdk.description')
+      }
       if (activeClientTab.value === 'claude') {
         return t('keys.useKeyModal.grok.claudeDescription')
       }
@@ -465,7 +473,7 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() => !['opencode', 'sdk'].includes(activeClientTab.value))
 
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
@@ -503,6 +511,11 @@ const currentFiles = computed((): FileConfig[] => {
     const trimmed = baseRoot.replace(/\/+$/, '')
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
+
+  if (activeClientTab.value === 'sdk') {
+    const model = props.platform === 'grok' ? 'grok-4.5' : 'gpt-5.5'
+    return generateOpenAISDKFiles(apiBase, apiKey, model)
+  }
 
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
@@ -552,6 +565,54 @@ const currentFiles = computed((): FileConfig[] => {
       return generateAnthropicFiles(baseUrl, apiKey)
   }
 })
+
+function generateOpenAISDKFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
+  const escapedBaseUrl = JSON.stringify(baseUrl)
+  const escapedApiKey = JSON.stringify(apiKey)
+  const escapedModel = JSON.stringify(model)
+  return [
+    {
+      path: 'Python · openai',
+      content: `from openai import OpenAI
+
+client = OpenAI(
+    base_url=${escapedBaseUrl},
+    api_key=${escapedApiKey},
+)
+
+response = client.responses.create(
+    model=${escapedModel},
+    input="Hello",
+)
+print(response.output_text)`,
+      hint: t('keys.useKeyModal.sdk.secretHint')
+    },
+    {
+      path: 'Node.js · openai',
+      content: `import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: ${escapedBaseUrl},
+  apiKey: ${escapedApiKey},
+});
+
+const response = await client.responses.create({
+  model: ${escapedModel},
+  input: "Hello",
+});
+console.log(response.output_text);`,
+      hint: t('keys.useKeyModal.sdk.secretHint')
+    },
+    {
+      path: 'curl',
+      content: `curl ${JSON.stringify(`${baseUrl}/responses`)} \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":${escapedModel},"input":"Hello"}'`,
+      hint: t('keys.useKeyModal.sdk.secretHint')
+    }
+  ]
+}
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   let path: string

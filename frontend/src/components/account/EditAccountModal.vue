@@ -581,6 +581,75 @@
         </div>
       </div>
 
+      <!-- Protected outbound request parameter policy -->
+      <div
+        v-if="requestParameterPolicyCapable"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.requestParameterPolicy.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.requestParameterPolicy.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="request-parameter-policy-toggle"
+            @click="requestParameterPolicyEnabled = !requestParameterPolicyEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              requestParameterPolicyEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                requestParameterPolicyEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div v-if="requestParameterPolicyEnabled" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.requestParameterPolicy.reasoningEffort') }}</label>
+            <select v-model="requestPolicyReasoningEffort" class="input">
+              <option value="">{{ t('admin.accounts.requestParameterPolicy.keepClient') }}</option>
+              <option v-for="value in ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']" :key="value" :value="value">{{ value }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.requestParameterPolicy.maxOutputTokens') }}</label>
+            <input
+              v-model.number="requestPolicyMaxOutputTokens"
+              class="input"
+              type="number"
+              min="1"
+              max="1000000"
+              :placeholder="t('admin.accounts.requestParameterPolicy.keepClient')"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.requestParameterPolicy.serviceTier') }}</label>
+            <select v-model="requestPolicyServiceTier" class="input">
+              <option value="">{{ t('admin.accounts.requestParameterPolicy.keepClient') }}</option>
+              <option v-for="value in ['auto', 'default', 'flex', 'priority', 'scale']" :key="value" :value="value">{{ value }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.requestParameterPolicy.store') }}</label>
+            <select v-model="requestPolicyStoreMode" class="input">
+              <option value="">{{ t('admin.accounts.requestParameterPolicy.keepClient') }}</option>
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
+            {{ t('admin.accounts.requestParameterPolicy.protectedHint') }}
+          </p>
+        </div>
+      </div>
+
       <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
         v-if="(account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth'"
@@ -2794,17 +2863,21 @@ import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSetti
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
+  applyRequestParameterPolicy,
   applyInterceptWarmup,
   applyPlanType,
   buildPlanTypeOptions,
   readPlanType,
   isCustomGrokBaseUrl,
   isHeaderOverrideCapable,
+  isRequestParameterPolicyCapable,
+  readRequestParameterPolicy,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows,
   defaultCNBaseUrl,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
+  REQUEST_PARAMETER_POLICY_ENABLED_CREDENTIAL_KEY,
   type CnAccountMode,
   type CnApiProtocol,
   type HeaderOverrideRow
@@ -3018,9 +3091,19 @@ const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
+const requestParameterPolicyEnabled = ref(false)
+const requestPolicyReasoningEffort = ref('')
+const requestPolicyMaxOutputTokens = ref<number | string | null>(null)
+const requestPolicyServiceTier = ref('')
+const requestPolicyStoreMode = ref<'' | 'true' | 'false'>('')
 
 const headerOverrideCapable = computed(
   () => !!props.account && isHeaderOverrideCapable(props.account.platform, props.account.type)
+)
+const requestParameterPolicyCapable = computed(
+  () =>
+    !!props.account &&
+    isRequestParameterPolicyCapable(props.account.platform, props.account.type)
 )
 
 // Grok OAuth 自定义上游地址（仅转发端点；OAuth 授权/令牌刷新不受影响）
@@ -3739,6 +3822,25 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     headerOverrideRows.value = splitHeaderOverridesObject(
       overrideCreds[HEADER_OVERRIDES_CREDENTIAL_KEY]
     )
+  }
+
+  requestParameterPolicyEnabled.value = false
+  requestPolicyReasoningEffort.value = ''
+  requestPolicyMaxOutputTokens.value = null
+  requestPolicyServiceTier.value = ''
+  requestPolicyStoreMode.value = ''
+  if (
+    newAccount.credentials &&
+    isRequestParameterPolicyCapable(newAccount.platform, newAccount.type)
+  ) {
+    const policyCreds = newAccount.credentials as Record<string, unknown>
+    const policy = readRequestParameterPolicy(policyCreds)
+    requestParameterPolicyEnabled.value =
+      policyCreds[REQUEST_PARAMETER_POLICY_ENABLED_CREDENTIAL_KEY] === true
+    requestPolicyReasoningEffort.value = policy.reasoningEffort
+    requestPolicyMaxOutputTokens.value = policy.maxOutputTokens
+    requestPolicyServiceTier.value = policy.serviceTier
+    requestPolicyStoreMode.value = policy.storeMode
   }
 
   // Load Grok OAuth custom upstream URL state（存储的官方地址视同未定制）
@@ -5077,6 +5179,37 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
+    }
+
+    if (requestParameterPolicyCapable.value) {
+      const rawMaxOutputTokens = requestPolicyMaxOutputTokens.value
+      const hasMaxOutputTokens = rawMaxOutputTokens !== null && rawMaxOutputTokens !== ''
+      if (
+        requestParameterPolicyEnabled.value &&
+        hasMaxOutputTokens &&
+        (!Number.isInteger(Number(rawMaxOutputTokens)) ||
+          Number(rawMaxOutputTokens) < 1 ||
+          Number(rawMaxOutputTokens) > 1000000)
+      ) {
+        appStore.showError(t('admin.accounts.requestParameterPolicy.invalidMaxOutputTokens'))
+        return
+      }
+      const currentCredentials =
+        (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      const newCredentials = { ...currentCredentials }
+      applyRequestParameterPolicy(
+        newCredentials,
+        requestParameterPolicyEnabled.value,
+        {
+          reasoningEffort: requestPolicyReasoningEffort.value,
+          maxOutputTokens: hasMaxOutputTokens ? Number(rawMaxOutputTokens) : null,
+          serviceTier: requestPolicyServiceTier.value,
+          storeMode: requestPolicyStoreMode.value
+        },
+        'edit'
+      )
+      updatePayload.credentials = newCredentials
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

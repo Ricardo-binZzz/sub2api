@@ -352,6 +352,66 @@ export function applyHeaderOverride(
   }
 }
 
+// ========== 受保护的请求参数策略（OpenAI-compatible Responses） ==========
+
+export const REQUEST_PARAMETER_POLICY_ENABLED_CREDENTIAL_KEY =
+  'request_parameter_policy_enabled'
+export const REQUEST_PARAMETER_POLICY_CREDENTIAL_KEY = 'request_parameter_policy'
+
+export interface RequestParameterPolicyForm {
+  reasoningEffort: string
+  maxOutputTokens: number | null
+  serviceTier: string
+  storeMode: '' | 'true' | 'false'
+}
+
+export function isRequestParameterPolicyCapable(platform: string, type: string): boolean {
+  if (platform === 'openai' || platform === 'grok') {
+    return type === 'apikey' || type === 'oauth'
+  }
+  return (
+    (platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek') &&
+    type === 'apikey'
+  )
+}
+
+export function readRequestParameterPolicy(credentials: Record<string, unknown>): RequestParameterPolicyForm {
+  const raw = credentials[REQUEST_PARAMETER_POLICY_CREDENTIAL_KEY]
+  const policy = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {}
+  const maxOutputTokens = Number(policy.max_output_tokens)
+  return {
+    reasoningEffort: typeof policy.reasoning_effort === 'string' ? policy.reasoning_effort : '',
+    maxOutputTokens:
+      Number.isInteger(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : null,
+    serviceTier: typeof policy.service_tier === 'string' ? policy.service_tier : '',
+    storeMode: policy.store === true ? 'true' : policy.store === false ? 'false' : ''
+  }
+}
+
+export function applyRequestParameterPolicy(
+  credentials: Record<string, unknown>,
+  enabled: boolean,
+  form: RequestParameterPolicyForm,
+  mode: 'create' | 'edit'
+): void {
+  if (!enabled) {
+    if (mode === 'edit') {
+      delete credentials[REQUEST_PARAMETER_POLICY_ENABLED_CREDENTIAL_KEY]
+      delete credentials[REQUEST_PARAMETER_POLICY_CREDENTIAL_KEY]
+    }
+    return
+  }
+  const policy: Record<string, unknown> = {}
+  if (form.reasoningEffort) policy.reasoning_effort = form.reasoningEffort
+  if (form.maxOutputTokens != null) policy.max_output_tokens = form.maxOutputTokens
+  if (form.serviceTier) policy.service_tier = form.serviceTier
+  if (form.storeMode) policy.store = form.storeMode === 'true'
+  credentials[REQUEST_PARAMETER_POLICY_ENABLED_CREDENTIAL_KEY] = true
+  credentials[REQUEST_PARAMETER_POLICY_CREDENTIAL_KEY] = policy
+}
+
 // ===== OpenAI plan_type (ChatGPT 订阅档位) 手动覆盖 =====
 
 export interface PlanTypeOption {

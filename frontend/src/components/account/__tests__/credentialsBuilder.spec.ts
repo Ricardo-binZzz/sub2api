@@ -5,20 +5,75 @@ import {
   HEADER_OVERRIDES_CREDENTIAL_KEY,
   applyAntigravityProjectID,
   applyHeaderOverride,
+  applyRequestParameterPolicy,
   applyInterceptWarmup,
   applyPlanType,
   buildHeaderOverridesObject,
   buildPlanTypeOptions,
   isCustomGrokBaseUrl,
   isHeaderOverrideCapable,
+  isRequestParameterPolicyCapable,
   GROK_BASE_URL_PRESETS,
   parseHeaderOverridesJson,
   planTypeDisplayLabel,
   readPlanType,
+  readRequestParameterPolicy,
   serializeHeaderOverrideRows,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('request parameter policy helpers', () => {
+  it('matches the backend eligibility allowlist', () => {
+    expect(isRequestParameterPolicyCapable('openai', 'oauth')).toBe(true)
+    expect(isRequestParameterPolicyCapable('grok', 'apikey')).toBe(true)
+    expect(isRequestParameterPolicyCapable('deepseek', 'apikey')).toBe(true)
+    expect(isRequestParameterPolicyCapable('anthropic', 'apikey')).toBe(false)
+  })
+
+  it('writes only allowlisted fields and reads them back', () => {
+    const credentials: Record<string, unknown> = { api_key: 'secret' }
+    applyRequestParameterPolicy(
+      credentials,
+      true,
+      {
+        reasoningEffort: 'high',
+        maxOutputTokens: 4096,
+        serviceTier: 'flex',
+        storeMode: 'false'
+      },
+      'edit'
+    )
+    expect(credentials.request_parameter_policy).toEqual({
+      reasoning_effort: 'high',
+      max_output_tokens: 4096,
+      service_tier: 'flex',
+      store: false
+    })
+    expect(readRequestParameterPolicy(credentials)).toEqual({
+      reasoningEffort: 'high',
+      maxOutputTokens: 4096,
+      serviceTier: 'flex',
+      storeMode: 'false'
+    })
+    expect((credentials.request_parameter_policy as Record<string, unknown>).model).toBeUndefined()
+  })
+
+  it('removes the policy when disabled during edit', () => {
+    const credentials: Record<string, unknown> = {
+      request_parameter_policy_enabled: true,
+      request_parameter_policy: { store: false }
+    }
+    applyRequestParameterPolicy(
+      credentials,
+      false,
+      { reasoningEffort: '', maxOutputTokens: null, serviceTier: '', storeMode: '' },
+      'edit'
+    )
+    expect(credentials.request_parameter_policy_enabled).toBeUndefined()
+    expect(credentials.request_parameter_policy).toBeUndefined()
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {

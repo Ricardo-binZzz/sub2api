@@ -856,6 +856,17 @@ export default {
         invalidValue: '请求头值不合法（不允许控制字符，长度不超过 8192）',
         tooManyEntries: '请求头覆写条目过多（最多 64 条）'
       },
+      requestParameterPolicy: {
+        title: '请求参数策略',
+        hint: '按账号统一覆盖少量安全参数，适用于 OpenAI-compatible Responses 请求。',
+        reasoningEffort: '推理强度',
+        maxOutputTokens: '最大输出 Token',
+        serviceTier: '服务层级',
+        store: '上游存储',
+        keepClient: '保持客户端设置',
+        protectedHint: '模型、输入/消息、工具、流式模式、鉴权信息和 Prompt Cache 键均受保护，不能在这里覆盖。',
+        invalidMaxOutputTokens: '最大输出 Token 必须是 1 到 1000000 之间的整数'
+      },
       grokCustomBaseUrl: {
         title: '自定义上游地址',
         hint: '开启后账号流量（对话/媒体/探测）改发指定地址；OAuth 授权与令牌刷新不受影响，仍走官方端点。',

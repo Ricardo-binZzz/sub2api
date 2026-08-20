@@ -229,6 +229,36 @@ describe('EditAccountModal Grok OAuth upstream config', () => {
     })
   })
 
+  it('loads and preserves a stored request parameter policy on save', async () => {
+    const account = buildGrokOAuthAccount({
+      request_parameter_policy_enabled: true,
+      request_parameter_policy: {
+        reasoning_effort: 'high',
+        max_output_tokens: 8192,
+        service_tier: 'flex',
+        store: false
+      }
+    })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="request-parameter-policy-toggle"]').classes()).toContain(
+      'bg-primary-600'
+    )
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await vi.waitFor(() => expect(updateAccountMock).toHaveBeenCalledTimes(1))
+
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload?.credentials?.request_parameter_policy_enabled).toBe(true)
+    expect(payload?.credentials?.request_parameter_policy).toEqual({
+      reasoning_effort: 'high',
+      max_output_tokens: 8192,
+      service_tier: 'flex',
+      store: false
+    })
+  })
+
   it('shows the client-tool cache switch only for Grok OAuth accounts', () => {
     const grokOAuthWrapper = mountModal(buildGrokOAuthAccount())
     expect(grokOAuthWrapper.find('[data-testid="grok-client-tool-cache-toggle"]').exists()).toBe(true)

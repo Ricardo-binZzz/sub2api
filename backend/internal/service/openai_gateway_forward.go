@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Forward forwards request to OpenAI API
@@ -104,6 +105,31 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
+	if promptCacheKey == "" && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && !shouldForwardOpenAIResponsesViaRawChatCompletions(account) && !isOpenAIResponsesCompactPath(c) {
+		var injected bool
+		body, injected, err = injectExplicitResponsesPromptCacheKey(body, explicitOpenAIHeaderSessionID(c))
+		if err != nil {
+			return nil, fmt.Errorf("inject responses prompt cache key: %w", err)
+		}
+		if injected {
+			originalBody = body
+			requestView = newOpenAIRequestView(body)
+			reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
+			originalModel = reqModel
+		}
+	}
+
+	policyBody, policyApplied, policyErr := account.ApplyRequestParameterPolicy(body)
+	if policyErr != nil {
+		return nil, fmt.Errorf("apply account request parameter policy: %w", policyErr)
+	}
+	if policyApplied {
+		body = policyBody
+		originalBody = policyBody
+		requestView = newOpenAIRequestView(policyBody)
+		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
+		originalModel = reqModel
+	}
 
 	if account.Platform == PlatformGrok {
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
@@ -1037,6 +1063,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		return forwardResult, nil
 	}
+}
+
+// injectExplicitResponsesPromptCacheKey makes native Responses requests match
+// the Chat Completions bridge: a stable session header becomes the upstream
+// prompt_cache_key when the client did not already provide one in the body.
+func injectExplicitResponsesPromptCacheKey(body []byte, sessionID string) ([]byte, bool, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()) != "" {
+		return body, false, nil
+	}
+	updated, err := sjson.SetBytes(body, "prompt_cache_key", sessionID)
+	if err != nil {
+		return body, false, err
+	}
+	return updated, true, nil
 }
 
 func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
