@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -12,6 +13,10 @@ const (
 	credKeyRequestParameterPolicyEnabled = "request_parameter_policy_enabled"
 	credKeyRequestParameterPolicy        = "request_parameter_policy"
 	maxRequestParameterPolicyTokens      = 1_000_000
+	// RequestParameterPolicyContextKey is set on the active request when an
+	// account policy actually changes an outbound request body.
+	RequestParameterPolicyContextKey = "request_parameter_policy_applied"
+	RequestParameterPolicyFieldsKey  = "request_parameter_policy_fields"
 )
 
 // RequestParameterPolicy is intentionally small. Fields that alter routing,
@@ -22,6 +27,27 @@ type RequestParameterPolicy struct {
 	MaxOutputTokens *int
 	ServiceTier     string
 	Store           *bool
+}
+
+func (p *RequestParameterPolicy) OverriddenFields() []string {
+	if p == nil {
+		return nil
+	}
+	fields := make([]string, 0, 4)
+	if p.ReasoningEffort != "" {
+		fields = append(fields, "reasoning.effort")
+	}
+	if p.MaxOutputTokens != nil {
+		fields = append(fields, "max_output_tokens")
+	}
+	if p.ServiceTier != "" {
+		fields = append(fields, "service_tier")
+	}
+	if p.Store != nil {
+		fields = append(fields, "store")
+	}
+	sort.Strings(fields)
+	return fields
 }
 
 func (a *Account) IsRequestParameterPolicyEligible() bool {

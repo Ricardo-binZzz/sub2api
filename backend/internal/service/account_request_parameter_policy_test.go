@@ -55,3 +55,15 @@ func TestRequestParameterPolicyEligibility(t *testing.T) {
 	require.True(t, (&Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey}).IsRequestParameterPolicyEligible())
 	require.False(t, (&Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}).IsRequestParameterPolicyEligible())
 }
+
+func TestRequestParameterPolicyOverriddenFields(t *testing.T) {
+	store := false
+	policy := &RequestParameterPolicy{
+		ReasoningEffort: "high",
+		MaxOutputTokens: intPtr(4096),
+		ServiceTier:     "flex",
+		Store:           &store,
+	}
+	require.Equal(t, []string{"max_output_tokens", "reasoning.effort", "service_tier", "store"}, policy.OverriddenFields())
+	require.Empty(t, (*RequestParameterPolicy)(nil).OverriddenFields())
+}

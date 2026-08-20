@@ -124,6 +124,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, fmt.Errorf("apply account request parameter policy: %w", policyErr)
 	}
 	if policyApplied {
+		policy := account.GetRequestParameterPolicy()
+		fields := strings.Join(policy.OverriddenFields(), ",")
+		if c != nil {
+			c.Set(RequestParameterPolicyContextKey, true)
+			c.Set(RequestParameterPolicyFieldsKey, fields)
+		}
+		logger.LegacyPrintf("service.openai_gateway", "request_parameter_policy_applied account=%d fields=%s", account.ID, fields)
 		body = policyBody
 		originalBody = policyBody
 		requestView = newOpenAIRequestView(policyBody)
