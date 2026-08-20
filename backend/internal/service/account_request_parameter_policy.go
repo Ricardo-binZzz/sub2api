@@ -17,8 +17,9 @@ const (
 	// RequestParameterPolicyContextKey is set on the active request when an
 	// account policy actually changes an outbound request body.
 	RequestParameterPolicyContextKey = "request_parameter_policy_applied"
-	RequestParameterPolicyFieldsKey  = "request_parameter_policy_fields"
 )
+
+const RequestParameterPolicyFieldsKey = "request_parameter_policy_fields"
 
 // RequestParameterPolicy is intentionally small. Fields that alter routing,
 // request identity, prompt content, tools, streaming, or cache isolation are

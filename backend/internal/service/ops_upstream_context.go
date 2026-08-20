@@ -14,7 +14,6 @@ const (
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
-	OpsUpstreamPolicyDiagnosticKey = "ops_upstream_policy_diagnostic"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
@@ -53,6 +52,8 @@ const (
 	OpsClientBusinessLimitedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
 )
+
+const OpsUpstreamPolicyDiagnosticKey = "ops_upstream_policy_diagnostic"
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
 
