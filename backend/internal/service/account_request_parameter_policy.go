@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -48,6 +49,28 @@ func (p *RequestParameterPolicy) OverriddenFields() []string {
 	}
 	sort.Strings(fields)
 	return fields
+}
+
+// Summary returns a stable, non-secret representation suitable for audit logs.
+func (p *RequestParameterPolicy) Summary() string {
+	if p == nil {
+		return "client-defaults"
+	}
+	parts := make([]string, 0, 4)
+	if p.ReasoningEffort != "" {
+		parts = append(parts, "reasoning.effort="+p.ReasoningEffort)
+	}
+	if p.MaxOutputTokens != nil {
+		parts = append(parts, fmt.Sprintf("max_output_tokens=%d", *p.MaxOutputTokens))
+	}
+	if p.ServiceTier != "" {
+		parts = append(parts, "service_tier="+p.ServiceTier)
+	}
+	if p.Store != nil {
+		parts = append(parts, fmt.Sprintf("store=%t", *p.Store))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
 
 func (a *Account) IsRequestParameterPolicyEligible() bool {

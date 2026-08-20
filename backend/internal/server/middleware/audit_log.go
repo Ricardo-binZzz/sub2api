@@ -59,6 +59,7 @@ var auditExtraAllowedKeys = map[string]struct{}{
 	"event_id": {}, "requested_count": {}, "deleted_events": {}, "deleted_jobs": {},
 	"matched_count": {}, "snapshot_max_id": {}, "filter_hash": {}, "confirm": {},
 	"request_parameter_policy_fields": {},
+	"request_parameter_policy_before": {}, "request_parameter_policy_after": {},
 }
 
 // SetAuditExtra adds allowlisted, scalar details to the current audit entry.

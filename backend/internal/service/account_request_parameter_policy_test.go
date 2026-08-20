@@ -66,4 +66,6 @@ func TestRequestParameterPolicyOverriddenFields(t *testing.T) {
 	}
 	require.Equal(t, []string{"max_output_tokens", "reasoning.effort", "service_tier", "store"}, policy.OverriddenFields())
 	require.Empty(t, (*RequestParameterPolicy)(nil).OverriddenFields())
+	require.Equal(t, "client-defaults", (*RequestParameterPolicy)(nil).Summary())
+	require.Equal(t, "max_output_tokens=4096,reasoning.effort=high,service_tier=flex,store=false", policy.Summary())
 }

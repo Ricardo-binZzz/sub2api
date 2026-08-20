@@ -1011,11 +1011,15 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 	if existingAccount != nil && account != nil {
-		beforeFields := strings.Join(existingAccount.GetRequestParameterPolicy().OverriddenFields(), ",")
-		afterFields := strings.Join(account.GetRequestParameterPolicy().OverriddenFields(), ",")
+		beforePolicy := existingAccount.GetRequestParameterPolicy()
+		afterPolicy := account.GetRequestParameterPolicy()
+		beforeFields := strings.Join(beforePolicy.OverriddenFields(), ",")
+		afterFields := strings.Join(afterPolicy.OverriddenFields(), ",")
 		if beforeFields != afterFields {
 			middleware2.SetAuditExtra(c, map[string]any{
 				"request_parameter_policy_fields": beforeFields + " -> " + afterFields,
+				"request_parameter_policy_before": beforePolicy.Summary(),
+				"request_parameter_policy_after":  afterPolicy.Summary(),
 			})
 		}
 	}
