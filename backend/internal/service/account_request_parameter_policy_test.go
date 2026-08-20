@@ -43,7 +43,8 @@ func TestNormalizeAndApplyRequestParameterPolicy(t *testing.T) {
 	require.Equal(t, float64(4096), got["max_output_tokens"])
 	require.Equal(t, "flex", got["service_tier"])
 	require.Equal(t, false, got["store"])
-	reasoning := got["reasoning"].(map[string]any)
+	reasoning, ok := got["reasoning"].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "auto", reasoning["summary"])
 	require.Equal(t, "high", reasoning["effort"])
 }
