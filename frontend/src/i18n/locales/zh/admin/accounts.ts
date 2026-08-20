@@ -864,6 +864,8 @@ export default {
         serviceTier: '服务层级',
         store: '上游存储',
         keepClient: '保持客户端设置',
+        previewTitle: '保存前生效预览',
+        previewHint: '保存后每个请求会按以下最终值覆盖；显示“保持客户端设置”的字段不会被修改。',
         protectedHint: '模型、输入/消息、工具、流式模式、鉴权信息和 Prompt Cache 键均受保护，不能在这里覆盖。',
         invalidMaxOutputTokens: '最大输出 Token 必须是 1 到 1000000 之间的整数'
       },

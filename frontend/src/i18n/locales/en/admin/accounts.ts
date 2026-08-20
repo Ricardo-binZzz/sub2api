@@ -800,6 +800,8 @@ export default {
         serviceTier: 'Service tier',
         store: 'Upstream storage',
         keepClient: 'Keep client setting',
+        previewTitle: 'Effective preview before saving',
+        previewHint: 'After saving, each request uses these final values. Fields showing “Keep client setting” are left unchanged.',
         protectedHint: 'Model, input/messages, tools, streaming, authentication, and Prompt Cache keys are protected and cannot be overridden here.',
         invalidMaxOutputTokens: 'Maximum output tokens must be an integer between 1 and 1000000'
       },

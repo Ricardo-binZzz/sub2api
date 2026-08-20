@@ -647,6 +647,21 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
             {{ t('admin.accounts.requestParameterPolicy.protectedHint') }}
           </p>
+          <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-900/20 sm:col-span-2">
+            <div class="flex items-center gap-2 text-xs font-semibold text-blue-800 dark:text-blue-300">
+              <Icon name="infoCircle" size="sm" />
+              {{ t('admin.accounts.requestParameterPolicy.previewTitle') }}
+            </div>
+            <p class="mt-1 text-xs text-blue-700 dark:text-blue-400">
+              {{ t('admin.accounts.requestParameterPolicy.previewHint') }}
+            </p>
+            <div class="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+              <div v-for="row in requestParameterPolicyPreviewRows" :key="row.key" class="flex justify-between gap-3">
+                <span class="text-blue-700 dark:text-blue-300">{{ row.label }}</span>
+                <span class="font-semibold text-blue-900 dark:text-blue-200">{{ row.value }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3096,6 +3111,34 @@ const requestPolicyReasoningEffort = ref('')
 const requestPolicyMaxOutputTokens = ref<number | string | null>(null)
 const requestPolicyServiceTier = ref('')
 const requestPolicyStoreMode = ref<'' | 'true' | 'false'>('')
+
+const requestParameterPolicyPreviewRows = computed(() => {
+  if (!requestParameterPolicyEnabled.value) return []
+  const rows: Array<{ key: string; label: string; value: string }> = []
+  const keepClient = t('admin.accounts.requestParameterPolicy.keepClient')
+  rows.push({
+    key: 'reasoning_effort',
+    label: t('admin.accounts.requestParameterPolicy.reasoningEffort'),
+    value: requestPolicyReasoningEffort.value || keepClient
+  })
+  const maxTokens = requestPolicyMaxOutputTokens.value
+  rows.push({
+    key: 'max_output_tokens',
+    label: t('admin.accounts.requestParameterPolicy.maxOutputTokens'),
+    value: maxTokens === null || maxTokens === '' ? keepClient : String(maxTokens)
+  })
+  rows.push({
+    key: 'service_tier',
+    label: t('admin.accounts.requestParameterPolicy.serviceTier'),
+    value: requestPolicyServiceTier.value || keepClient
+  })
+  rows.push({
+    key: 'store',
+    label: t('admin.accounts.requestParameterPolicy.store'),
+    value: requestPolicyStoreMode.value === '' ? keepClient : requestPolicyStoreMode.value
+  })
+  return rows
+})
 
 const headerOverrideCapable = computed(
   () => !!props.account && isHeaderOverrideCapable(props.account.platform, props.account.type)
