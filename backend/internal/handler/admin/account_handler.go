@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -837,6 +838,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	existingAccount, _ := h.adminService.GetAccount(c.Request.Context(), accountID)
 
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
@@ -1007,6 +1009,15 @@ func (h *AccountHandler) Update(c *gin.Context) {
 
 		response.ErrorFrom(c, err)
 		return
+	}
+	if existingAccount != nil && account != nil {
+		beforeFields := strings.Join(existingAccount.GetRequestParameterPolicy().OverriddenFields(), ",")
+		afterFields := strings.Join(account.GetRequestParameterPolicy().OverriddenFields(), ",")
+		if beforeFields != afterFields {
+			middleware2.SetAuditExtra(c, map[string]any{
+				"request_parameter_policy_fields": beforeFields + " -> " + afterFields,
+			})
+		}
 	}
 
 	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
