@@ -181,6 +181,9 @@ export default {
         footer: 'Automated diagnostic suggestions based on current metrics',
         idle: 'System is currently idle',
         idleImpact: 'No active traffic',
+        lowSample: 'Low sample size ({count} SLA requests)',
+        lowSampleImpact: 'A single failure can move the percentages materially; use this view for detection, not long-term conclusions',
+        lowSampleAction: 'Expand the time window or wait for more requests before judging the trend',
         // Resource diagnostics
         dbDown: 'Database connection failed',
         dbDownImpact: 'All database operations will fail',

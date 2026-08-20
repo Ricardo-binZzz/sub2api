@@ -372,7 +372,7 @@ const realtimeTpsPeakLabel = computed(() => {
 })
 const realtimeQpsAvgLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.qps?.avg
-  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '-'
+  return formatRate(v)
 })
 const realtimeTpsAvgLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.tps?.avg
@@ -381,8 +381,7 @@ const realtimeTpsAvgLabel = computed(() => {
 
 const qpsAvgLabel = computed(() => {
   const v = overview.value?.qps?.avg
-  if (typeof v !== 'number') return '-'
-  return v.toFixed(1)
+  return formatRate(v)
 })
 
 const tpsAvgLabel = computed(() => {
@@ -390,6 +389,12 @@ const tpsAvgLabel = computed(() => {
   if (typeof v !== 'number') return '-'
   return v.toFixed(1)
 })
+
+function formatRate(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  if (value > 0 && value < 0.05) return '<0.1'
+  return value.toFixed(1)
+}
 
 const slaPercent = computed(() => {
   const v = overview.value?.sla
@@ -488,6 +493,16 @@ const diagnosisReport = computed<DiagnosisItem[]>(() => {
       impact: t('admin.ops.diagnosis.idleImpact')
     })
     return report
+  }
+
+  const sampleCount = ov.request_count_sla ?? 0
+  if (sampleCount > 0 && sampleCount < 100) {
+    report.push({
+      type: 'info',
+      message: t('admin.ops.diagnosis.lowSample', { count: sampleCount }),
+      impact: t('admin.ops.diagnosis.lowSampleImpact'),
+      action: t('admin.ops.diagnosis.lowSampleAction')
+    })
   }
 
   // Resource diagnostics (highest priority)

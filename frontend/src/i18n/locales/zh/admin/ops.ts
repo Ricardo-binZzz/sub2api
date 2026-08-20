@@ -181,6 +181,9 @@ export default {
         footer: '基于当前指标的自动诊断建议',
         idle: '系统当前处于待机状态',
         idleImpact: '无活跃流量',
+        lowSample: '当前统计样本较少（{count} 个 SLA 请求）',
+        lowSampleImpact: '单个异常会显著影响百分比，当前指标适合用于发现问题，不宜单独作为长期趋势结论',
+        lowSampleAction: '扩大时间窗口或等待更多请求后，再评估 SLA 和错误率趋势',
         // Resource diagnostics
         dbDown: '数据库连接失败',
         dbDownImpact: '所有数据库操作将失败',
