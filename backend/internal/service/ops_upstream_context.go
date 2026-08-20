@@ -14,6 +14,7 @@ const (
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
+	OpsUpstreamPolicyDiagnosticKey = "ops_upstream_policy_diagnostic"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
@@ -181,10 +182,32 @@ func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage
 	}
 	if msg := strings.TrimSpace(upstreamMessage); msg != "" {
 		c.Set(OpsUpstreamErrorMessageKey, msg)
+		if diagnostic := DiagnoseRequestParameterPolicyRejection(msg); diagnostic != "" {
+			c.Set(OpsUpstreamPolicyDiagnosticKey, diagnostic)
+			if strings.TrimSpace(upstreamDetail) == "" {
+				upstreamDetail = diagnostic
+			}
+		}
 	}
 	if detail := strings.TrimSpace(upstreamDetail); detail != "" {
 		c.Set(OpsUpstreamErrorDetailKey, detail)
 	}
+}
+
+// DiagnoseRequestParameterPolicyRejection returns an actionable explanation
+// for provider errors caused by account-level request parameter overrides.
+func DiagnoseRequestParameterPolicyRejection(message string) string {
+	msg := strings.ToLower(strings.TrimSpace(message))
+	if msg == "" {
+		return ""
+	}
+	if strings.Contains(msg, "service_tier") && (strings.Contains(msg, "not allowed") || strings.Contains(msg, "unsupported") || strings.Contains(msg, "invalid") || strings.Contains(msg, "not support")) {
+		return "request parameter policy: upstream rejected service_tier; disable the account override or use a tier supported by this model"
+	}
+	if (strings.Contains(msg, "reasoning.effort") || strings.Contains(msg, "reasoning_effort")) && (strings.Contains(msg, "not allowed") || strings.Contains(msg, "unsupported") || strings.Contains(msg, "invalid") || strings.Contains(msg, "not support")) {
+		return "request parameter policy: upstream rejected reasoning effort; lower or remove the account override for this model"
+	}
+	return ""
 }
 
 // OpsUpstreamErrorEvent describes one upstream error attempt during a single gateway request.

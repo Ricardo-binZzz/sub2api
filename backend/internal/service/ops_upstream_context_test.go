@@ -1,10 +1,34 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestDiagnoseRequestParameterPolicyRejection(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{name: "service tier", msg: "service_tier=priority is not allowed for model gpt-5.5", want: "service_tier"},
+		{name: "reasoning effort", msg: "reasoning.effort high is not supported", want: "reasoning effort"},
+		{name: "unrelated", msg: "invalid api key", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DiagnoseRequestParameterPolicyRejection(tt.msg)
+			if tt.want == "" && got != "" {
+				t.Fatalf("got unexpected diagnostic %q", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("diagnostic %q does not contain %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestSafeUpstreamURL(t *testing.T) {
 	tests := []struct {
