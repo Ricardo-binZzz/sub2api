@@ -127,6 +127,10 @@ export default {
     acceptFailed: 'Failed to submit acknowledgment'
   },
 
+  serviceTerms: {
+    title: 'Service Terms and Usage Guide'
+  },
+
   legal: {
     loadFailed: 'Failed to load document',
     retryLater: 'Refresh the page and try again later.',
@@ -136,6 +140,7 @@ export default {
     empty: 'No content',
     loginAgreement: 'Login Agreement',
     adminCompliance: 'Deployment and Operation Compliance Commitment',
+    serviceTerms: 'Service Terms and Usage Guide',
     loginAgreementPrompt: {
       checkboxPrefix: 'I have read and agree to ',
       documentSeparator: ', ',

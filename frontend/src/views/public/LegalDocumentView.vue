@@ -102,6 +102,7 @@ import { useAppStore } from '@/stores/app'
 import type { LoginAgreementDocument } from '@/types'
 import zhAdminCompliance from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enAdminCompliance from '../../../../docs/legal/admin-compliance.en.md?raw'
+import zhServiceTerms from '../../../../docs/legal/service-terms.zh.md?raw'
 
 type LegalDocumentIcon = 'document' | 'shield' | 'globe' | 'cog'
 
@@ -119,6 +120,7 @@ marked.setOptions({
 
 const documentId = computed(() => String(route.params.documentId || ''))
 const isAdminComplianceDocument = computed(() => documentId.value === 'admin-compliance')
+const isServiceTermsDocument = computed(() => documentId.value === 'service-terms')
 const documents = computed(() => settings.value?.login_agreement_documents ?? [])
 const siteName = computed(() => settings.value?.site_name || 'Sub2API')
 const siteLogo = computed(() => sanitizeUrl(settings.value?.site_logo || '', {
@@ -126,10 +128,14 @@ const siteLogo = computed(() => sanitizeUrl(settings.value?.site_logo || '', {
   allowDataUrl: true,
 }))
 const updatedAt = computed(() =>
-  isAdminComplianceDocument.value ? '' : settings.value?.login_agreement_updated_at || ''
+  isAdminComplianceDocument.value || isServiceTermsDocument.value ? '' : settings.value?.login_agreement_updated_at || ''
 )
 const documentTypeLabel = computed(() =>
-  isAdminComplianceDocument.value ? t('legal.adminCompliance') : t('legal.loginAgreement')
+  isAdminComplianceDocument.value
+    ? t('legal.adminCompliance')
+    : isServiceTermsDocument.value
+      ? t('legal.serviceTerms')
+      : t('legal.loginAgreement')
 )
 
 const currentDocument = computed<LoginAgreementDocument | null>(() => {
@@ -138,6 +144,13 @@ const currentDocument = computed<LoginAgreementDocument | null>(() => {
       id: 'admin-compliance',
       title: t('adminCompliance.title'),
       content_md: getLocale() === 'zh' ? zhAdminCompliance : enAdminCompliance
+    }
+  }
+  if (isServiceTermsDocument.value) {
+    return {
+      id: 'service-terms',
+      title: t('serviceTerms.title'),
+      content_md: zhServiceTerms
     }
   }
   const id = documentId.value

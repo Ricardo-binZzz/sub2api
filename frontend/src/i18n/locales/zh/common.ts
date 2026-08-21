@@ -127,6 +127,10 @@ export default {
     acceptFailed: '提交确认失败'
   },
 
+  serviceTerms: {
+    title: '服务条款与使用说明'
+  },
+
   legal: {
     loadFailed: '文档加载失败',
     retryLater: '请稍后刷新页面重试。',
@@ -136,6 +140,7 @@ export default {
     empty: '暂无正文内容',
     loginAgreement: '登录条款',
     adminCompliance: '部署与运营合规承诺',
+    serviceTerms: '服务条款与使用说明',
     loginAgreementPrompt: {
       checkboxPrefix: '我已阅读并同意',
       documentSeparator: '、',
