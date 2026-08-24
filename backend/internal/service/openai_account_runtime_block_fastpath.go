@@ -268,6 +268,18 @@ func (s *OpenAIGatewayService) getOpenAIAccountModelTransientState() *openAIAcco
 	return s.openaiModelTransient
 }
 
+func (s *OpenAIGatewayService) getOpenAIAccountModelLatencyCircuit() *openAIAccountModelLatencyCircuit {
+	if s == nil {
+		return nil
+	}
+	s.openaiLatencyCircuitOnce.Do(func() {
+		if s.openaiLatencyCircuit == nil {
+			s.openaiLatencyCircuit = newOpenAIAccountModelLatencyCircuit(openAIModelLatencyCircuitMaxEntries)
+		}
+	})
+	return s.openaiLatencyCircuit
+}
+
 func canonicalOpenAIAccountSchedulingModel(account *Account, requestedModel string) string {
 	model := strings.TrimSpace(requestedModel)
 	if account == nil || model == "" {
@@ -314,8 +326,52 @@ func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Accou
 	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
 }
 
+func (s *OpenAIGatewayService) isOpenAIAccountModelLatencyBlocked(account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	circuit := s.getOpenAIAccountModelLatencyCircuit()
+	if circuit == nil {
+		return false
+	}
+	model := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	return circuit.isBlocked(account.ID, model, time.Now())
+}
+
+func (s *OpenAIGatewayService) tryClaimOpenAIAccountModelLatencyProbe(account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return true
+	}
+	circuit := s.getOpenAIAccountModelLatencyCircuit()
+	if circuit == nil {
+		return true
+	}
+	model := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	return circuit.tryClaimProbe(account.ID, model, time.Now())
+}
+
+func (s *OpenAIGatewayService) recordOpenAIAccountModelLatencyTimeout(account *Account, model, reasoningEffort string) openAIAccountModelLatencyCircuitDecision {
+	if s == nil || account == nil {
+		return openAIAccountModelLatencyCircuitDecision{}
+	}
+	circuit := s.getOpenAIAccountModelLatencyCircuit()
+	if circuit == nil {
+		return openAIAccountModelLatencyCircuitDecision{}
+	}
+	return circuit.recordTimeout(account.ID, canonicalOpenAIAccountSchedulingModel(account, model), reasoningEffort, time.Now())
+}
+
+func (s *OpenAIGatewayService) recordOpenAIAccountModelLatencyResult(accountID int64, model string, success bool) {
+	circuit := s.getOpenAIAccountModelLatencyCircuit()
+	if circuit != nil {
+		circuit.recordResult(accountID, model, success, time.Now())
+	}
+}
+
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
-	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) || s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel))
+	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) ||
+		s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel) ||
+		s.isOpenAIAccountModelLatencyBlocked(account, requestedModel))
 }
 
 func (s *OpenAIGatewayService) recordOpenAIOAuth429() {

@@ -3212,6 +3212,42 @@ func TestOpenAIAccountRuntimeStats_ReportConcurrent(t *testing.T) {
 	}
 }
 
+func TestOpenAIAccountRuntimeStats_ModelStatsOverrideGlobalAfterMinimumSamples(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+
+	for range openAIAccountModelStatsMinSamples {
+		fast := 200
+		stats.reportForModel(1001, "gpt-fast", true, &fast)
+		slow := 20_000
+		stats.reportForModel(1001, "gpt-slow", false, &slow)
+	}
+
+	fastErrorRate, fastTTFT, fastHasTTFT := stats.snapshotForModel(1001, "GPT-FAST")
+	slowErrorRate, slowTTFT, slowHasTTFT := stats.snapshotForModel(1001, "gpt-slow")
+	require.True(t, fastHasTTFT)
+	require.True(t, slowHasTTFT)
+	require.Less(t, fastErrorRate, slowErrorRate)
+	require.Less(t, fastTTFT, slowTTFT)
+}
+
+func TestOpenAIAccountRuntimeStats_ModelStatsFallBackUntilMinimumSamples(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	for range openAIAccountModelStatsMinSamples {
+		globalTTFT := 1_000
+		stats.report(1001, true, &globalTTFT)
+	}
+	for range openAIAccountModelStatsMinSamples - 1 {
+		modelTTFT := 30_000
+		stats.reportForModel(1001, "sparse-model", false, &modelTTFT)
+	}
+
+	globalErrorRate, globalTTFT, globalHasTTFT := stats.snapshot(1001)
+	modelErrorRate, modelTTFT, modelHasTTFT := stats.snapshotForModel(1001, "sparse-model")
+	require.Equal(t, globalHasTTFT, modelHasTTFT)
+	require.InDelta(t, globalErrorRate, modelErrorRate, 1e-9)
+	require.InDelta(t, globalTTFT, modelTTFT, 1e-9)
+}
+
 func TestSelectTopKOpenAICandidates(t *testing.T) {
 	candidates := []openAIAccountCandidateScore{
 		{
@@ -3453,7 +3489,7 @@ func TestDefaultOpenAIAccountScheduler_ReportSwitchAndSnapshot(t *testing.T) {
 	require.True(t, ok)
 
 	ttft := 100
-	scheduler.ReportResult(1001, true, &ttft)
+	scheduler.ReportResult(1001, "gpt-5.1", true, &ttft)
 	scheduler.ReportSwitch()
 	scheduler.metrics.recordSelect(OpenAIAccountScheduleDecision{
 		Layer:             openAIAccountScheduleLayerLoadBalance,

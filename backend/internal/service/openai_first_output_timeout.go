@@ -267,6 +267,14 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 		Kind: "first_output_timeout", Message: "OpenAI upstream produced no semantic output before the deadline",
 		Detail: fmt.Sprintf("phase=%s elapsed_ms=%d timeout_ms=%d", phase, elapsed.Milliseconds(), timeout.Milliseconds()),
 	})
+	decision := s.recordOpenAIAccountModelLatencyTimeout(account, originalModel, reasoningEffort)
+	if decision.BlockUntil.After(time.Now()) {
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"OpenAI model latency circuit opened: account=%d model=%s failures=%d cooldown=%s until=%s",
+			account.ID, originalModel, decision.FailureCount, decision.Cooldown, decision.BlockUntil,
+		)
+	}
 	if s.rateLimitService != nil {
 		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 	}
