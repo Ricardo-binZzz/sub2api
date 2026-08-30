@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +48,30 @@ func stagedCodexFingerprintIDs(c *gin.Context, account *Account) *codexFingerpri
 	return ids
 }
 
+// ensureStagedCodexFingerprintIDs resolves a single snapshot for builders that
+// can be reached outside the main Forward preprocessing path (compatibility,
+// probes, and retries). It also prevents a stale snapshot from a failed-over
+// account from being reused for the selected credential.
+func ensureStagedCodexFingerprintIDs(c *gin.Context, account *Account) *codexFingerprintIDs {
+	if account == nil || !account.UsesOpenAICodexProtocol() {
+		return nil
+	}
+	if ids := stagedCodexFingerprintIDs(c, account); ids != nil {
+		return ids
+	}
+	if account.GetCodexFingerprintMode() == codexFingerprintOff {
+		stageCodexFingerprintIDs(c, nil)
+		return nil
+	}
+	var headers http.Header
+	if c != nil && c.Request != nil {
+		headers = c.Request.Header
+	}
+	ids := resolveCodexFingerprintIDsFromRequest(account, headers)
+	stageCodexFingerprintIDs(c, ids)
+	return ids
+}
+
 // applyStagedCodexFingerprintHeaders 读取 context 暂存的收敛 ID 并改写出站头。
 // 非透传与透传两个请求构造器共用本函数，防止应用语义漂移。仅解析该
 // snapshot 的 OAuth 账号可读取，避免 stale context 跨账号 failover 泄漏。
@@ -64,8 +90,9 @@ func applyStagedCodexFingerprintClientMetadata(c *gin.Context, account *Account,
 type codexFingerprintMode string
 
 const (
-	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
-	// 这是默认值：收敛是显式 opt-in 的（见 GetCodexFingerprintMode）。
+	// codexFingerprintOff 关闭服务端指纹收敛。只有显式填写 off 时才会
+	// 使用该值；未配置账号统一落到 session，避免把客户端设备标识直接
+	// 带到 ChatGPT 内部接口。
 	codexFingerprintOff codexFingerprintMode = "off"
 	// codexFingerprintDevice 仅收敛 installation_id 为账号级恒定值。
 	// 上游看到 1 台设备 + 多会话（每用户各自的 session）。
@@ -83,6 +110,36 @@ const (
 	codexFingerprintModeExtraKey = "codex_fingerprint_mode"
 	codexFingerprintSeedExtraKey = "codex_fingerprint_seed"
 )
+
+var codexFingerprintNamespaceState = struct {
+	sync.RWMutex
+	value string
+}{value: "sub2api-default-deployment"}
+
+// SetCodexFingerprintDeploymentNamespace publishes a deployment-only secret
+// used when deriving outbound identifiers. The secret is never persisted in an
+// account row and is never returned to clients. Call it during service startup
+// with a stable deployment secret (JWT secret is a suitable fallback).
+func SetCodexFingerprintDeploymentNamespace(secret string) {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		secret = "sub2api-default-deployment"
+	}
+	sum := sha256.Sum256([]byte("sub2api:codex-deployment:v1:" + secret))
+	codexFingerprintNamespaceState.Lock()
+	codexFingerprintNamespaceState.value = fmt.Sprintf("%x", sum[:])
+	codexFingerprintNamespaceState.Unlock()
+}
+
+func codexFingerprintDeploymentNamespace() string {
+	codexFingerprintNamespaceState.RLock()
+	value := codexFingerprintNamespaceState.value
+	codexFingerprintNamespaceState.RUnlock()
+	if value == "" {
+		return "sub2api-default-deployment"
+	}
+	return value
+}
 
 func canonicalCodexFingerprintSeed(value any) (string, bool) {
 	raw, ok := value.(string)
@@ -112,15 +169,34 @@ func stripCodexFingerprintSeed(extra map[string]any) map[string]any {
 
 func codexFingerprintModeFromExtra(extra map[string]any) codexFingerprintMode {
 	if extra == nil {
-		return codexFingerprintOff
+		return codexFingerprintSession
 	}
 	raw, _ := extra[codexFingerprintModeExtraKey].(string)
+	if strings.TrimSpace(raw) == "" {
+		return codexFingerprintSession
+	}
 	switch codexFingerprintMode(strings.TrimSpace(raw)) {
 	case codexFingerprintOff, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
 		return codexFingerprintMode(strings.TrimSpace(raw))
 	default:
-		return codexFingerprintOff
+		return codexFingerprintSession
 	}
+}
+
+func normalizeCodexFingerprintModeExtra(extra map[string]any) map[string]any {
+	if extra == nil {
+		extra = make(map[string]any, 1)
+	}
+	if raw, ok := extra[codexFingerprintModeExtraKey].(string); ok {
+		mode := strings.TrimSpace(raw)
+		switch codexFingerprintMode(mode) {
+		case codexFingerprintOff, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
+			extra[codexFingerprintModeExtraKey] = mode
+			return extra
+		}
+	}
+	extra[codexFingerprintModeExtraKey] = string(codexFingerprintSession)
+	return extra
 }
 
 func codexFingerprintModeRequiresSeed(mode codexFingerprintMode) bool {
@@ -141,7 +217,11 @@ func codexFingerprintSeed(extra map[string]any) (string, bool) {
 
 func prepareCodexFingerprintExtraForCreate(platform, accountType string, extra map[string]any) map[string]any {
 	prepared := stripCodexFingerprintSeed(extra)
-	if platform != PlatformOpenAI || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || !codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(prepared)) {
+	if platform != PlatformOpenAI || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) {
+		return prepared
+	}
+	prepared = normalizeCodexFingerprintModeExtra(prepared)
+	if !codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(prepared)) {
 		return prepared
 	}
 	if prepared == nil {
@@ -156,6 +236,7 @@ func prepareCodexFingerprintExtraForUpdate(account *Account, extra map[string]an
 	if account == nil || !account.IsOpenAIOAuthLike() {
 		return prepared
 	}
+	prepared = normalizeCodexFingerprintModeExtra(prepared)
 	if seed, ok := codexFingerprintSeed(account.Extra); ok {
 		if prepared == nil {
 			prepared = make(map[string]any, 1)
@@ -191,17 +272,8 @@ func ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates map[string]any) boo
 	return codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(updates))
 }
 
-// GetCodexFingerprintMode 从账号 extra JSON 读取指纹收敛模式。
-//
-// **收敛是显式 opt-in**：未设置、空值或非法值一律按 off 处理，只有管理员
-// 明确配置 device / session / full 才收敛。
-//
-// 历史：v0.1.175（#5553）把缺省值当作 session，导致升级后存量 OAuth 账号
-// （普遍没有这个 extra 键）的每个非透传请求都被静默改写 installation /
-// session / thread / turn / window 五类标识；#5555、#5556、#5582 报告的额度
-// 缩水都卡在该版本边界，并有"回退 v0.1.173 即恢复"与"新账号开收敛后降额"
-// 的 A/B 实测。上游的配额判定策略不可观测，因此这里取兼容安全的一侧：
-// 不显式 opt-in 就保持 v0.1.175 之前的客户端身份（#5610）。
+// GetCodexFingerprintMode 从账号 extra JSON 读取指纹收敛模式。未配置或
+// 非法值使用 session；显式 off 仍可作为管理员回滚开关。
 func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 	if a == nil || !a.IsOpenAIOAuthLike() {
 		return codexFingerprintOff
@@ -230,13 +302,18 @@ func resolveConvergedInstallationID(account *Account, seed string) string {
 	if account == nil {
 		return ""
 	}
-	if deviceID := account.GetOpenAIDeviceID(); deviceID != "" {
-		return deviceID
-	}
 	if seed == "" {
 		return ""
 	}
-	return deriveStableUUIDv4("sub2api:codex-install-id:v2:" + seed)
+	// openai_device_id is a credential-side identifier. It is only an input to
+	// an HMAC-like derivation and is never emitted directly. Including the
+	// deployment namespace prevents the same account/seed from producing the
+	// same installation id on two independent deployments.
+	deviceID := strings.TrimSpace(account.GetOpenAIDeviceID())
+	message := "sub2api:codex-install-id:v3:" + codexFingerprintDeploymentNamespace() + ":" + seed + ":" + deviceID
+	mac := hmac.New(sha256.New, []byte(codexFingerprintDeploymentNamespace()))
+	_, _ = mac.Write([]byte(message))
+	return deriveStableUUIDv4(fmt.Sprintf("%x", mac.Sum(nil)))
 }
 
 // resolveConvergedSessionID 返回账号级恒定的 session_id。
@@ -392,21 +469,14 @@ func applyCodexFingerprintHeaders(h http.Header, ids *codexFingerprintIDs) {
 // 非法/非对象值重建为最小合法 metadata，避免 flat 与 embedded identity 分裂。
 func rewriteCodexTurnMetadataFields(h http.Header, fields map[string]any) {
 	raw := strings.TrimSpace(h.Get("x-codex-turn-metadata"))
-	if raw == "" {
+	if raw == "" && len(fields) == 0 {
 		return
 	}
-	var metadata map[string]any
-	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata == nil {
-		metadata = make(map[string]any, len(fields))
+	if rebuilt := sanitizeCodexTurnMetadataValue(raw, fields); rebuilt != "" {
+		h.Set("x-codex-turn-metadata", rebuilt)
+	} else {
+		h.Del("x-codex-turn-metadata")
 	}
-	for k, v := range fields {
-		metadata[k] = v
-	}
-	rebuilt, err := json.Marshal(metadata)
-	if err != nil {
-		return
-	}
-	h.Set("x-codex-turn-metadata", string(rebuilt))
 }
 
 // applyCodexFingerprintClientMetadata 按预计算的收敛 ID 改写请求体中的 client_metadata。
@@ -437,39 +507,10 @@ func applyCodexFingerprintClientMetadata(reqBody map[string]any, ids *codexFinge
 // map 版（非透传，body 已解码）与 raw 字节版（透传热路径）都经由它，保证两条
 // 路径的收敛语义永不漂移。
 func applyCodexFingerprintToClientMetadataMap(existing map[string]any, ids *codexFingerprintIDs) bool {
-	if existing == nil || ids == nil {
+	if existing == nil {
 		return false
 	}
-
-	modified := false
-
-	if ids.installationID != "" {
-		existing["x-codex-installation-id"] = ids.installationID
-		modified = true
-	}
-
-	if ids.mode == codexFingerprintDevice {
-		rewriteClientMetadataEmbeddedTurnMetadata(existing, map[string]any{
-			"installation_id": ids.installationID,
-		})
-		return modified
-	}
-
-	// session / full 模式
-	existing["session_id"] = ids.sessionID
-	existing["thread_id"] = ids.threadID
-	existing["turn_id"] = ids.turnID
-	existing["x-codex-window-id"] = ids.windowID
-
-	rewriteClientMetadataEmbeddedTurnMetadata(existing, map[string]any{
-		"installation_id":         ids.installationID,
-		"session_id":              ids.sessionID,
-		"thread_id":               ids.threadID,
-		"turn_id":                 ids.turnID,
-		"window_id":               ids.windowID,
-		"turn_started_at_unix_ms": ids.turnStartedAtUnixMs,
-	})
-	return true
+	return sanitizeCodexClientMetadataMap(existing, ids)
 }
 
 func captureCodexFingerprintOriginalBodySessionID(ids *codexFingerprintIDs, clientMetadata any) {
@@ -585,17 +626,12 @@ func applyCodexFingerprintClientMetadataRaw(body []byte, ids *codexFingerprintID
 // 避免 flat client_metadata 与 embedded metadata 暴露两套身份。
 func rewriteClientMetadataEmbeddedTurnMetadata(clientMetadata map[string]any, fields map[string]any) {
 	raw, ok := clientMetadata["x-codex-turn-metadata"].(string)
-	if !ok || raw == "" {
+	if !ok {
 		return
 	}
-	var metadata map[string]any
-	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata == nil {
-		metadata = make(map[string]any, len(fields))
-	}
-	for k, v := range fields {
-		metadata[k] = v
-	}
-	if rebuilt, err := json.Marshal(metadata); err == nil {
+	if rebuilt := sanitizeCodexTurnMetadataValue(raw, fields); rebuilt != "" {
 		clientMetadata["x-codex-turn-metadata"] = string(rebuilt)
+	} else {
+		delete(clientMetadata, "x-codex-turn-metadata")
 	}
 }

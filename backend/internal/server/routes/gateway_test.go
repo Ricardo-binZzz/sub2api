@@ -445,6 +445,11 @@ func TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths(t *testing.T)
 		"/v1/responses/%3fa=b",
 		"/v1/responses/x%23frag",
 		"/v1/responses/compact%2f..",
+		// Safe-looking but unsupported descendants must fail closed too.
+		"/v1/responses/foo",
+		"/v1/responses/compact/detail",
+		"/responses/input_tokens/detail",
+		"/backend-api/codex/responses/unknown",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
 		req.Header.Set("Content-Type", "application/json")

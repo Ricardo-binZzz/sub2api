@@ -115,6 +115,34 @@ func TestNormalizeOpenAIResponsesCompactRequest_RemoteV2PathAliasesStayOnRespons
 	}
 }
 
+func TestIsBareOpenAIResponsesPathUsesExactRootAllowlist(t *testing.T) {
+	for _, path := range []string{
+		"/v1/responses",
+		"/v1/responses/",
+		"/openai/v1/responses",
+		"/responses",
+		"/backend-api/codex/responses",
+	} {
+		t.Run("allow_"+path, func(t *testing.T) {
+			c := newCompactBodySignalTestContext(t, path, nil)
+			require.True(t, isBareOpenAIResponsesPath(c), "path=%s", path)
+		})
+	}
+
+	for _, path := range []string{
+		"/v1/responses//",
+		"/v1/responses/compact",
+		"/v1/responses/compact/detail",
+		"/v1/responses/foo",
+		"/foo/v1/responses",
+	} {
+		t.Run("reject_"+path, func(t *testing.T) {
+			c := newCompactBodySignalTestContext(t, path, nil)
+			require.False(t, isBareOpenAIResponsesPath(c), "path=%s", path)
+		})
+	}
+}
+
 func TestOpenAIResponsesCompactionRoutingFlags(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 	tests := []struct {
@@ -165,15 +193,16 @@ func TestOpenAIResponsesCompactionRoutingFlags(t *testing.T) {
 			wantPathAfter:       "/v1/responses/compact",
 		},
 		{
-			name:                "nested_compact",
+			name:                "nested_compact_is_not_allowlisted",
 			body:                []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"compaction_trigger"}]}`),
 			path:                "/v1/responses/compact/detail",
-			wantLegacyBefore:    true,
+			wantLegacyBefore:    false,
 			wantNativeBefore:    false,
-			wantLegacyAfter:     true,
+			wantLegacyAfter:     false,
 			wantNativeAfter:     false,
-			wantCapabilityAfter: service.OpenAIEndpointCapabilityResponses,
+			wantCapabilityAfter: service.OpenAIEndpointCapabilityChatCompletions,
 			wantPathAfter:       "/v1/responses/compact/detail",
+			wantBodyUnchanged:   true,
 		},
 		{
 			name:                "responses_subpath_with_native_signal",
