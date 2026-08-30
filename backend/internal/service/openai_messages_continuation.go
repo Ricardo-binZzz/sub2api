@@ -213,6 +213,10 @@ func (s *OpenAIGatewayService) bindOpenAICompatSessionResponseID(_ context.Conte
 		}
 	}
 	s.openaiCompatSessionResponses.Store(key, binding)
+	// The state was minted by the selected upstream account and is now eligible
+	// for the next compat bridge request. Record provenance for the shared
+	// outbound failover guard.
+	s.noteOpenAICodexTurnStateProvenance(c, account)
 }
 
 func (s *OpenAIGatewayService) deleteOpenAICompatSessionResponseID(_ context.Context, c *gin.Context, account *Account, promptCacheKey string) {

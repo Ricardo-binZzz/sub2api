@@ -1282,6 +1282,14 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// DeepSeek 原生 Responses 端点为无状态实现：强制 store=false、清除
 	// previous_response_id，避免携带状态字段被上游拒绝。
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	if account.UsesOpenAICodexProtocol() {
+		ids := ensureStagedCodexFingerprintIDs(c, account)
+		sanitized, _, sanitizeErr := sanitizeCodexRequestBodyRaw(body, ids)
+		if sanitizeErr != nil {
+			return nil, fmt.Errorf("sanitize Codex request body: %w", sanitizeErr)
+		}
+		body = sanitized
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -1395,6 +1403,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if account.UsesOpenAICodexProtocol() {
+		s.finalizeOpenAICodexRequestHeaders(c, account, req.Header, isOpenAIResponsesCompactPath(c), isStream)
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
 	return req, nil

@@ -303,7 +303,8 @@ func isOpenAIEncryptedReasoningInputItem(item any) bool {
 }
 
 // IsOpenAIResponsesCompactPath reports whether the request targets the legacy
-// /responses/compact endpoint, including its forwardable subpaths.
+// /responses/compact endpoint. The compact endpoint is intentionally an exact
+// path allowlist entry; resource-style descendants are not forwarded.
 func IsOpenAIResponsesCompactPath(c *gin.Context) bool {
 	return isOpenAIResponsesCompactPath(c)
 }
@@ -317,8 +318,7 @@ func NormalizeOpenAICompactRequestBodyForTest(body []byte) ([]byte, bool, error)
 }
 
 func isOpenAIResponsesCompactPath(c *gin.Context) bool {
-	suffix := strings.TrimSpace(openAIResponsesRequestPathSuffix(c))
-	return suffix == "/compact" || strings.HasPrefix(suffix, "/compact/")
+	return openAIResponsesRequestPathSuffix(c) == "/compact"
 }
 
 func normalizeOpenAICompactRequestBody(body []byte) ([]byte, bool, error) {
@@ -505,22 +505,30 @@ func resolveOpenAICompactSessionID(c *gin.Context) string {
 	return uuid.NewString()
 }
 
-// openAIResponsesRequestPathSuffix 返回可拼接到上游 /responses URL 后面的子路径。
-// 不可转发的子路径返回空串（退化为裸 /responses）；真正的拒绝由入口守卫
+// openAIResponsesRequestPathSuffix 返回可拼接到上游 /responses URL 后面的
+// 精确允许子路径。未知路径返回空串；真正的拒绝由入口守卫
 // IsForwardableOpenAIResponsesRequestPath 负责。这样即便将来新增路由漏挂守卫，
 // 拼进上游 URL 的也只会是合规片段。
 func openAIResponsesRequestPathSuffix(c *gin.Context) string {
-	suffix, ok := sanitizedUpstreamPathSuffix(rawOpenAIResponsesRequestPathSuffix(c))
+	raw, pathOK := rawOpenAIResponsesRequestPathSuffixChecked(c)
+	if !pathOK {
+		return ""
+	}
+	suffix, ok := canonicalOpenAIResponsesSuffix(raw)
 	if !ok {
 		return ""
 	}
 	return suffix
 }
 
-// IsForwardableOpenAIResponsesRequestPath 判断入站请求携带的 /responses 子路径
-// 是否可以安全转发。路由层用它在鉴权后、调度前直接拒绝畸形子路径。
+// IsForwardableOpenAIResponsesRequestPath 判断入站请求是否命中 Responses
+// 路径白名单。路由层用它在鉴权后、调度前直接拒绝未知子路径。
 func IsForwardableOpenAIResponsesRequestPath(c *gin.Context) bool {
-	_, ok := sanitizedUpstreamPathSuffix(rawOpenAIResponsesRequestPathSuffix(c))
+	raw, pathOK := rawOpenAIResponsesRequestPathSuffixChecked(c)
+	if !pathOK {
+		return false
+	}
+	_, ok := canonicalOpenAIResponsesSuffix(raw)
 	return ok
 }
 
@@ -530,33 +538,71 @@ func IsOpenAIResponsesInputTokensRequestPath(c *gin.Context) bool {
 	return openAIResponsesRequestPathSuffix(c) == "/input_tokens"
 }
 
-// rawOpenAIResponsesRequestPathSuffix 仅做提取，不做任何安全判断。
+// rawOpenAIResponsesRequestPathSuffix preserves the historical string-only
+// helper for same-package callers. An unrelated path returns an empty suffix;
+// security-sensitive callers must use rawOpenAIResponsesRequestPathSuffixChecked
+// so they can distinguish that case from a valid root path.
 func rawOpenAIResponsesRequestPathSuffix(c *gin.Context) string {
-	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return ""
-	}
-	normalizedPath := strings.TrimRight(strings.TrimSpace(c.Request.URL.Path), "/")
-	if normalizedPath == "" {
-		return ""
-	}
-	idx := strings.LastIndex(normalizedPath, "/responses")
-	if idx < 0 {
-		return ""
-	}
-	suffix := normalizedPath[idx+len("/responses"):]
-	if suffix == "" || suffix == "/" {
-		return ""
-	}
-	if !strings.HasPrefix(suffix, "/") {
-		return ""
-	}
+	suffix, _ := rawOpenAIResponsesRequestPathSuffixChecked(c)
 	return suffix
+}
+
+// rawOpenAIResponsesRequestPathSuffixChecked extracts a suffix only from a
+// known Responses route root. The bool distinguishes an unrelated request path
+// from a valid root with an empty suffix; callers must fail closed on false.
+func rawOpenAIResponsesRequestPathSuffixChecked(c *gin.Context) (string, bool) {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return "", false
+	}
+	path := strings.TrimSpace(c.Request.URL.Path)
+	if path == "" {
+		return "", false
+	}
+	// Keep the route roots explicit. A LastIndex("/responses") extraction would
+	// let an unrelated prefix (or a nested resource path) reach the upstream URL.
+	const responsesRoot = "/v1/responses"
+	roots := [...]string{
+		responsesRoot,
+		"/openai/v1/responses",
+		"/responses",
+		"/backend-api/codex/responses",
+	}
+	for _, root := range roots {
+		if path == root {
+			return "", true
+		}
+		if path == root+"/" {
+			return "/", true
+		}
+		if strings.HasPrefix(path, root+"/") {
+			return strings.TrimPrefix(path, root), true
+		}
+	}
+	return "", false
+}
+
+// canonicalOpenAIResponsesSuffix is the closed set of supported Responses
+// subpaths. A single trailing slash is accepted as normal HTTP path spelling;
+// repeated slashes and every other descendant remain rejected.
+func canonicalOpenAIResponsesSuffix(raw string) (string, bool) {
+	switch raw {
+	case "":
+		return "", true
+	case "/":
+		return "", true
+	case "/compact", "/compact/":
+		return "/compact", true
+	case "/input_tokens", "/input_tokens/":
+		return "/input_tokens", true
+	default:
+		return "", false
+	}
 }
 
 func appendOpenAIResponsesRequestPathSuffix(baseURL, suffix string) string {
 	trimmedBase := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	// 兜底：调用方漏了校验时，这里也不会把不合规的片段拼进上游 URL。
-	trimmedSuffix, ok := sanitizedUpstreamPathSuffix(suffix)
+	trimmedSuffix, ok := canonicalOpenAIResponsesSuffix(strings.TrimSpace(suffix))
 	if !ok || trimmedBase == "" || trimmedSuffix == "" {
 		return trimmedBase
 	}

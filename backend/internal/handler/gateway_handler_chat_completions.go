@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,8 +14,36 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
+
+var jsonObjectPromptMessage = json.RawMessage(`{"role":"system","content":"Return only a valid JSON object."}`)
+
+// ensureJSONObjectPrompt satisfies OpenAI-compatible providers that require the
+// literal word "json" in the prompt whenever response_format is json_object.
+func ensureJSONObjectPrompt(body []byte) ([]byte, error) {
+	format := strings.TrimSpace(gjson.GetBytes(body, "response_format.type").String())
+	if !strings.EqualFold(format, "json_object") {
+		return body, nil
+	}
+
+	messagesResult := gjson.GetBytes(body, "messages")
+	if !messagesResult.IsArray() || strings.Contains(strings.ToLower(messagesResult.Raw), "json") {
+		return body, nil
+	}
+
+	var messages []json.RawMessage
+	if err := json.Unmarshal([]byte(messagesResult.Raw), &messages); err != nil {
+		return nil, err
+	}
+	messages = append([]json.RawMessage{jsonObjectPromptMessage}, messages...)
+	encodedMessages, err := json.Marshal(messages)
+	if err != nil {
+		return nil, err
+	}
+	return sjson.SetRawBytes(body, "messages", encodedMessages)
+}
 
 // ChatCompletions handles OpenAI Chat Completions API endpoint for Anthropic platform groups.
 // POST /v1/chat/completions
@@ -66,6 +95,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if !gjson.ValidBytes(body) {
 		logRequestBodyParseFailure(reqLog, body, nil)
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	body, err = ensureJSONObjectPrompt(body)
+	if err != nil {
+		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to normalize JSON response format prompt")
 		return
 	}
 

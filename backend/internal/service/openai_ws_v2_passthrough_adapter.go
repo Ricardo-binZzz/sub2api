@@ -676,6 +676,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if account == nil {
 		return errors.New("account is nil")
 	}
+	if account.UsesOpenAICodexProtocol() {
+		// Direct passthrough callers may bypass ProxyResponsesWebSocketFromClient;
+		// stage the session snapshot here as well so the first frame and all later
+		// frames use identical account-level identifiers.
+		stageCodexFingerprintIDs(c, resolveCodexFingerprintIDsFromRequest(account, c.Request.Header))
+	} else {
+		stageCodexFingerprintIDs(c, nil)
+	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
@@ -757,6 +765,21 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	if accountScoped {
 		firstClientMessage = accountScopedFirst
+	}
+	if account.UsesOpenAICodexProtocol() {
+		fpIDs := stagedCodexFingerprintIDs(c, account)
+		if fpIDs != nil {
+			if fingerprintBody, _, fingerprintErr := applyCodexFingerprintClientMetadataRaw(firstClientMessage, fpIDs); fingerprintErr != nil {
+				return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket fingerprint metadata", fingerprintErr)
+			} else {
+				firstClientMessage = fingerprintBody
+			}
+		}
+		sanitizedBody, _, sanitizeErr := sanitizeCodexWebSocketFrameRaw(firstClientMessage, fpIDs)
+		if sanitizeErr != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket metadata", sanitizeErr)
+		}
+		firstClientMessage = sanitizedBody
 	}
 	usageMeta := newOpenAIWSPassthroughUsageMeta(initialRequestModel, firstClientMessage)
 	updatedFirst, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, capturedSessionModel, firstClientMessage)
@@ -1010,6 +1033,21 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 				if accountScoped {
 					payload = accountScopedPayload
+				}
+				if account.UsesOpenAICodexProtocol() {
+					fpIDs := stagedCodexFingerprintIDs(c, account)
+					if isResponseCreate && fpIDs != nil {
+						if fingerprintBody, _, fingerprintErr := applyCodexFingerprintClientMetadataRaw(payload, fpIDs); fingerprintErr != nil {
+							return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket fingerprint metadata", fingerprintErr)
+						} else {
+							payload = fingerprintBody
+						}
+					}
+					sanitizedBody, _, sanitizeErr := sanitizeCodexWebSocketFrameRaw(payload, fpIDs)
+					if sanitizeErr != nil {
+						return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket metadata", sanitizeErr)
+					}
+					payload = sanitizedBody
 				}
 			}
 			if isResponseCreate {

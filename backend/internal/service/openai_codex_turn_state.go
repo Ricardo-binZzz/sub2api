@@ -128,10 +128,14 @@ func (s *OpenAIGatewayService) guardOpenAICodexTurnStateEcho(c *gin.Context, acc
 	}
 	seed := openAICodexTurnStateSeed(c)
 	if seed == "" {
+		h.Del(openAICodexTurnStateHeader)
 		return
 	}
 	raw, ok := s.openaiCodexTurnStateOrigins.Load(seed)
 	if !ok {
+		// An opaque client-supplied blob without a server provenance record is
+		// not distinguishable from a cross-account replay. Fail closed.
+		h.Del(openAICodexTurnStateHeader)
 		return
 	}
 	origin, ok := raw.(openAICodexTurnStateOrigin)
@@ -141,6 +145,7 @@ func (s *OpenAIGatewayService) guardOpenAICodexTurnStateEcho(c *gin.Context, acc
 	}
 	if !origin.expiresAt.IsZero() && time.Now().After(origin.expiresAt) {
 		s.openaiCodexTurnStateOrigins.Delete(seed)
+		h.Del(openAICodexTurnStateHeader)
 		return
 	}
 	if origin.accountID != account.ID {

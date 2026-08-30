@@ -32,9 +32,9 @@ func TestOpenAIUpstreamEndpoint_ViaGetUpstreamEndpoint(t *testing.T) {
 			want: "/v1/responses/compact",
 		},
 		{
-			name: "responses nested suffix preserved",
+			name: "unknown responses descendant falls back to root",
 			path: "/openai/v1/responses/compact/detail",
-			want: "/v1/responses/compact/detail",
+			want: EndpointResponses,
 		},
 		{
 			name: "non responses path uses platform fallback",

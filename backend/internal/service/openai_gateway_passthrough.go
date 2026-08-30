@@ -603,6 +603,14 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// DeepSeek 原生 Responses 端点为无状态实现（见 normalizeDeepSeekResponsesRequestBody）。
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	if account.UsesOpenAICodexProtocol() {
+		ids := ensureStagedCodexFingerprintIDs(c, account)
+		sanitized, _, sanitizeErr := sanitizeCodexRequestBodyRaw(body, ids)
+		if sanitizeErr != nil {
+			return nil, fmt.Errorf("sanitize Codex passthrough body: %w", sanitizeErr)
+		}
+		body = sanitized
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -721,6 +729,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if account.UsesOpenAICodexProtocol() {
+		s.finalizeOpenAICodexRequestHeaders(c, account, req.Header, isOpenAIResponsesCompactPath(c), gjson.GetBytes(body, "stream").Bool())
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
 	return req, nil

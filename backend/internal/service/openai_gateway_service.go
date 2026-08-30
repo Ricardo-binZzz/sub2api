@@ -505,6 +505,10 @@ func NewOpenAIGatewayService(
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
 	if cfg != nil {
 		SetCodexIdentityEnforcementEnabled(!cfg.Gateway.DisableCodexIdentityEnforcement)
+		// The JWT secret is deployment-local and already required for a
+		// persistent installation. Use it as the namespace input for Codex
+		// fingerprint pseudonyms; the secret itself never leaves this process.
+		SetCodexFingerprintDeploymentNamespace(cfg.JWT.Secret)
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,
@@ -1148,7 +1152,9 @@ func snapshotCodexCLIOnlyHeaders(header http.Header) map[string]string {
 		if value == "" {
 			continue
 		}
-		result[strings.ToLower(key)] = truncateString(value, codexCLIOnlyHeaderValueMaxBytes)
+		// Header values can contain cookies, opaque turn state, device IDs, or
+		// trace context. Keep only a stable digest for diagnostics.
+		result[strings.ToLower(key)] = hashSensitiveValueForLog(truncateString(value, codexCLIOnlyHeaderValueMaxBytes))
 	}
 	return result
 }

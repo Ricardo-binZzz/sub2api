@@ -29,7 +29,7 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/responses", EndpointResponses},
 		{"/v1/responses/input_tokens", EndpointResponsesInputTokens},
 		{"/v1/responses/compact", EndpointResponsesCompact},
-		{"/v1/responses/compact/detail", EndpointResponsesCompact},
+		{"/v1/responses/compact/detail", "/v1/responses/compact/detail"},
 		{"/v1/images/generations", EndpointImagesGenerations},
 		{"/v1/images/edits", EndpointImagesEdits},
 		{"/v1/images/tasks/imgtask_123", EndpointImageTasks},
@@ -47,13 +47,13 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		// Prefixed paths — "/responses/compact" is its OWN distinct
 		// inbound endpoint, not folded into the root Responses endpoint.
 		{"/openai/v1/responses/compact", EndpointResponsesCompact},
-		{"/openai/v1/responses/compact/detail", EndpointResponsesCompact},
+		{"/openai/v1/responses/compact/detail", "/openai/v1/responses/compact/detail"},
 
 		// Bare top-level alias route "/responses" — root vs. compact.
 		{"/responses", EndpointResponses},
 		{"/responses/input_tokens", EndpointResponsesInputTokens},
 		{"/responses/compact", EndpointResponsesCompact},
-		{"/responses/compact/detail", EndpointResponsesCompact},
+		{"/responses/compact/detail", "/responses/compact/detail"},
 		{"/alpha/search", EndpointAlphaSearch},
 		{"/images/tasks/imgtask_123", EndpointImageTasks},
 
@@ -61,7 +61,7 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/backend-api/codex/responses", EndpointResponses},
 		{"/backend-api/codex/responses/input_tokens", EndpointResponsesInputTokens},
 		{"/backend-api/codex/responses/compact", EndpointResponsesCompact},
-		{"/backend-api/codex/responses/compact/detail", EndpointResponsesCompact},
+		{"/backend-api/codex/responses/compact/detail", "/backend-api/codex/responses/compact/detail"},
 		{"/backend-api/codex/alpha/search", EndpointAlphaSearch},
 
 		// Must NOT generalize to arbitrary paths merely ending in
@@ -109,11 +109,11 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		// (or nested) suffix, which must be preserved on the upstream
 		// endpoint.
 		{"openai responses compact", EndpointResponsesCompact, "/openai/v1/responses/compact", service.PlatformOpenAI, "/v1/responses/compact"},
-		{"openai responses nested", EndpointResponsesCompact, "/openai/v1/responses/compact/detail", service.PlatformOpenAI, "/v1/responses/compact/detail"},
+		{"openai responses nested is not allowlisted", EndpointResponsesCompact, "/openai/v1/responses/compact/detail", service.PlatformOpenAI, EndpointResponsesCompact},
 		{"openai bare responses compact", EndpointResponsesCompact, "/responses/compact", service.PlatformOpenAI, "/v1/responses/compact"},
-		{"openai bare responses compact detail", EndpointResponsesCompact, "/responses/compact/detail", service.PlatformOpenAI, "/v1/responses/compact/detail"},
+		{"openai bare responses compact detail is not allowlisted", EndpointResponsesCompact, "/responses/compact/detail", service.PlatformOpenAI, EndpointResponsesCompact},
 		{"openai codex direct responses compact", EndpointResponsesCompact, "/backend-api/codex/responses/compact", service.PlatformOpenAI, "/v1/responses/compact"},
-		{"openai codex direct responses compact detail", EndpointResponsesCompact, "/backend-api/codex/responses/compact/detail", service.PlatformOpenAI, "/v1/responses/compact/detail"},
+		{"openai codex direct responses compact detail is not allowlisted", EndpointResponsesCompact, "/backend-api/codex/responses/compact/detail", service.PlatformOpenAI, EndpointResponsesCompact},
 
 		// OpenAI — bare root alias routes normalize to root Responses.
 		{"openai bare responses", EndpointResponses, "/responses", service.PlatformOpenAI, EndpointResponses},
@@ -249,13 +249,14 @@ func TestResponsesSubpathSuffix(t *testing.T) {
 		{"/v1/responses", ""},
 		{"/v1/responses/", ""},
 		{"/v1/responses/compact", "/compact"},
-		{"/openai/v1/responses/compact/detail", "/compact/detail"},
+		{"/v1/responses/input_tokens", "/input_tokens"},
+		{"/openai/v1/responses/compact/detail", ""},
 		{"/responses", ""},
 		{"/responses/compact", "/compact"},
-		{"/responses/compact/detail", "/compact/detail"},
+		{"/responses/compact/detail", ""},
 		{"/backend-api/codex/responses", ""},
 		{"/backend-api/codex/responses/compact", "/compact"},
-		{"/backend-api/codex/responses/compact/detail", "/compact/detail"},
+		{"/backend-api/codex/responses/compact/detail", ""},
 		{"/v1/messages", ""},
 		{"", ""},
 	}
@@ -332,22 +333,22 @@ func TestInboundEndpointMiddleware_WildcardRoutes(t *testing.T) {
 			want:        EndpointResponsesCompact,
 		},
 		{
-			name:        "v1 responses wildcard route, non-compact subpath request",
+			name:        "v1 responses wildcard route leaves unknown subpath unnormalized",
 			routePath:   "/v1/responses/*subpath",
 			requestPath: "/v1/responses/foo",
-			want:        EndpointResponses,
+			want:        "/v1/responses/foo",
 		},
 		{
-			name:        "bare responses wildcard route, non-compact subpath request",
+			name:        "bare responses wildcard route leaves unknown subpath unnormalized",
 			routePath:   "/responses/*subpath",
 			requestPath: "/responses/foo",
-			want:        EndpointResponses,
+			want:        "/responses/foo",
 		},
 		{
-			name:        "codex direct wildcard route, non-compact subpath request",
+			name:        "codex direct wildcard route leaves unknown subpath unnormalized",
 			routePath:   "/backend-api/codex/responses/*subpath",
 			requestPath: "/backend-api/codex/responses/foo",
-			want:        EndpointResponses,
+			want:        "/backend-api/codex/responses/foo",
 		},
 	}
 	for _, tt := range tests {

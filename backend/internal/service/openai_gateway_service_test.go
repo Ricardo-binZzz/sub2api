@@ -3014,7 +3014,8 @@ func TestOpenAIResponsesRequestPathSuffix(t *testing.T) {
 		{name: "exact v1 responses", path: "/v1/responses", want: ""},
 		{name: "compact v1 responses", path: "/v1/responses/compact", want: "/compact"},
 		{name: "compact alias responses", path: "/responses/compact/", want: "/compact"},
-		{name: "nested suffix", path: "/openai/v1/responses/compact/detail", want: "/compact/detail"},
+		{name: "input tokens v1 responses", path: "/v1/responses/input_tokens", want: "/input_tokens"},
+		{name: "unknown nested suffix is omitted", path: "/openai/v1/responses/compact/detail", want: ""},
 		{name: "unrelated path", path: "/v1/chat/completions", want: ""},
 	}
 

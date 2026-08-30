@@ -875,19 +875,15 @@ func isOpenAILegacyCompactPath(c *gin.Context) bool {
 	return service.IsOpenAIResponsesCompactPath(c)
 }
 
-// isBareOpenAIResponsesPath 仅匹配裸 /responses 端点（无 /compact 等子路径），
-// body-signal 提升只允许发生在这里，避免误伤 /responses/{id}/... 形态的请求。
+// isBareOpenAIResponsesPath 仅匹配精确的 Responses 根端点（无 /compact
+// 等子路径）；body-signal 提升只允许发生在这里，避免误伤
+// /responses/{id}/... 形态的请求。与 endpoint.go 共用同一闭集匹配器，
+// 因此重复尾斜杠等畸形路径不会被静默归一化。
 func isBareOpenAIResponsesPath(c *gin.Context) bool {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return false
 	}
-	normalizedPath := strings.TrimRight(strings.TrimSpace(c.Request.URL.Path), "/")
-	switch normalizedPath {
-	case EndpointResponses, "/openai/v1/responses", "/responses", "/backend-api/codex/responses":
-		return true
-	default:
-		return false
-	}
+	return isResponsesRootPath(c.Request.URL.Path)
 }
 
 func isOpenAIRemoteCompactionV2Request(body []byte) bool {

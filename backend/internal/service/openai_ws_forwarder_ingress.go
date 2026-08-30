@@ -89,6 +89,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
 		return err
 	}
+	if account.UsesOpenAICodexProtocol() {
+		// Resolve once for the whole WS session so every response.create frame,
+		// handshake header, and reconnect shares one account-scoped snapshot.
+		stageCodexFingerprintIDs(c, resolveCodexFingerprintIDsFromRequest(account, c.Request.Header))
+	} else {
+		stageCodexFingerprintIDs(c, nil)
+	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
@@ -320,6 +327,25 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		if accountScoped {
 			normalized = accountScopedPayload
+		}
+		if account.UsesOpenAICodexProtocol() {
+			// Account namespace projection runs before fingerprint projection.  This
+			// prevents the final account snapshot from being hashed a second time by
+			// the legacy identity helper, while still retaining prompt-cache/session
+			// compatibility for the current turn.
+			fpIDs := stagedCodexFingerprintIDs(c, account)
+			if eventType == "response.create" && fpIDs != nil {
+				if fingerprintBody, _, fingerprintErr := applyCodexFingerprintClientMetadataRaw(normalized, fpIDs); fingerprintErr != nil {
+					return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket fingerprint metadata", fingerprintErr)
+				} else {
+					normalized = fingerprintBody
+				}
+			}
+			sanitizedBody, _, sanitizeErr := sanitizeCodexWebSocketFrameRaw(normalized, fpIDs)
+			if sanitizeErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket metadata", sanitizeErr)
+			}
+			normalized = sanitizedBody
 		}
 		if responsesLite {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)

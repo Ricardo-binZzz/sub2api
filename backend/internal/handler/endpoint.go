@@ -49,7 +49,7 @@ const (
 //
 //	"/antigravity/v1/messages"   → "/v1/messages"
 //	"/v1/chat/completions"       → "/v1/chat/completions"
-//	"/openai/v1/responses/foo"   → "/v1/responses"
+//	"/openai/v1/responses/compact" → "/v1/responses/compact"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
 //
 // The OpenAI Responses API is also exposed via a few bare/alias
@@ -58,18 +58,14 @@ const (
 // codex/responses/compact") is a distinct client endpoint — the
 // "compact" client — and is normalized to its OWN canonical inbound
 // endpoint, EndpointResponsesCompact, rather than being folded into
-// the root Responses endpoint. Any other subpath under the bare/alias
-// roots (i.e. not "compact" itself or nested under it) remains a
-// subresource suffix of the root Responses endpoint:
+// the root Responses endpoint. Only the explicitly supported
+// "/compact" and "/input_tokens" subpaths are recognized; unknown
+// descendants are left untouched and rejected by the route guard.
 //
 //	"/v1/responses/compact"                         → EndpointResponsesCompact
-//	"/v1/responses/compact/detail"                  → EndpointResponsesCompact
 //	"/openai/v1/responses/compact"                  → EndpointResponsesCompact
-//	"/openai/v1/responses/compact/detail"           → EndpointResponsesCompact
 //	"/responses/compact"                            → EndpointResponsesCompact
-//	"/responses/compact/detail"                     → EndpointResponsesCompact
 //	"/backend-api/codex/responses/compact"          → EndpointResponsesCompact
-//	"/backend-api/codex/responses/compact/detail"   → EndpointResponsesCompact
 //	"/v1/responses"                                 → EndpointResponses
 //	"/openai/v1/responses"                          → EndpointResponses
 //	"/responses"                                    → EndpointResponses
@@ -81,7 +77,7 @@ const (
 func NormalizeInboundEndpoint(path string) string {
 	path = strings.TrimSpace(path)
 	switch {
-	case strings.Contains(path, EndpointResponsesInputTokens) || isResponsesInputTokensAliasPath(path):
+	case isResponsesInputTokensPath(path):
 		return EndpointResponsesInputTokens
 	case strings.Contains(path, EndpointEmbeddings):
 		return EndpointEmbeddings
@@ -105,9 +101,9 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointVideosExtensions
 	case strings.Contains(path, EndpointVideos) || strings.Contains(path, "/videos/"):
 		return EndpointVideos
-	case strings.Contains(path, EndpointResponsesCompact) || isResponsesCompactAliasPath(path):
+	case isResponsesCompactPath(path):
 		return EndpointResponsesCompact
-	case strings.Contains(path, EndpointResponses) || isResponsesRootAliasPath(path):
+	case isResponsesRootPath(path):
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
@@ -116,64 +112,90 @@ func NormalizeInboundEndpoint(path string) string {
 	}
 }
 
-func isResponsesInputTokensAliasPath(path string) bool {
-	trimmed := strings.TrimRight(strings.TrimSpace(path), "/")
-	if trimmed == "" {
-		return false
-	}
-	return isBareOrSubpathOf(trimmed, "/responses/input_tokens") ||
-		isBareOrSubpathOf(trimmed, "/backend-api/codex/responses/input_tokens")
+// responsesPathRoots is the closed set of inbound route roots that expose the
+// OpenAI Responses API. Keep this list explicit so an unrelated path containing
+// "/responses" cannot be normalized or forwarded accidentally.
+var responsesPathRoots = [...]string{
+	EndpointResponses,
+	"/openai/v1/responses",
+	"/responses",
+	"/backend-api/codex/responses",
 }
 
-// isResponsesCompactAliasPath reports whether path is the bare/alias
-// "compact" client endpoint — i.e. it is rooted at "/responses/compact"
-// or "/backend-api/codex/responses/compact" (bare routes that serve
-// the OpenAI Responses API "compact" client without a "/v1/" prefix),
-// or any subpath nested under either of those roots:
+// normalizedExactPath trims whitespace and at most one conventional trailing
+// slash. Repeated trailing slashes are deliberately not canonicalized: they
+// remain outside the exact route allowlist.
+func normalizedExactPath(path string) (string, bool) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", false
+	}
+	if strings.HasSuffix(trimmed, "/") {
+		trimmed = strings.TrimSuffix(trimmed, "/")
+		if trimmed == "" || strings.HasSuffix(trimmed, "/") {
+			return "", false
+		}
+	}
+	return trimmed, true
+}
+
+func isExactResponsesPath(path, suffix string) bool {
+	normalized, ok := normalizedExactPath(path)
+	if !ok {
+		return false
+	}
+	for _, root := range responsesPathRoots {
+		if normalized == root+suffix {
+			return true
+		}
+	}
+	return false
+}
+
+func isResponsesRootPath(path string) bool {
+	return isExactResponsesPath(path, "")
+}
+
+func isResponsesCompactPath(path string) bool {
+	return isExactResponsesPath(path, "/compact")
+}
+
+func isResponsesInputTokensPath(path string) bool {
+	return isExactResponsesPath(path, "/input_tokens")
+}
+
+func isResponsesInputTokensAliasPath(path string) bool {
+	return isResponsesInputTokensPath(path)
+}
+
+// isResponsesCompactAliasPath reports whether path is one of the exact
+// "compact" client endpoints. It intentionally does not accept descendants.
 //
 //   - "/responses/compact"                   (bare route, compact client)
-//   - "/responses/compact/*subpath"          (nested, e.g. "/responses/compact/detail")
 //   - "/backend-api/codex/responses/compact" (Codex direct route, compact client)
-//   - "/backend-api/codex/responses/compact/*subpath" (nested, e.g.
-//     "/backend-api/codex/responses/compact/detail")
 //
 // This MUST be checked before isResponsesRootAliasPath, since
 // "/responses" is a prefix of "/responses/compact".
 func isResponsesCompactAliasPath(path string) bool {
-	trimmed := strings.TrimRight(strings.TrimSpace(path), "/")
-	if trimmed == "" {
-		return false
-	}
-	return isBareOrSubpathOf(trimmed, "/responses/compact") || isBareOrSubpathOf(trimmed, "/backend-api/codex/responses/compact")
+	return isResponsesCompactPath(path)
 }
 
-// isResponsesRootAliasPath reports whether path is one of the bare/alias
-// routes that serve the root OpenAI Responses API without a "/v1/"
-// prefix, or any non-"compact" subpath registered under them:
+// isResponsesRootAliasPath reports whether path is one of the exact bare/alias
+// routes that serve the root OpenAI Responses API without a "/v1/" prefix.
 //
 //   - "/responses"                    (top-level bare route)
-//   - "/responses/*subpath"           (any subpath other than "compact",
-//     since "compact" is its own distinct inbound endpoint)
 //   - "/backend-api/codex/responses"  (Codex direct route)
-//   - "/backend-api/codex/responses/*subpath" (any subpath other than
-//     "compact")
 //
-// Only the top-level bare route and the Codex direct route (and their
-// subpaths) are recognized here — this deliberately does NOT generalize
-// to any path merely ending in "/responses" (e.g. an unrelated
-// "/foo/responses" must not match).
+// Only the two exact bare/alias roots are recognized here; this deliberately
+// does NOT generalize to any path merely ending in "/responses" (e.g. an
+// unrelated "/foo/responses" must not match).
 func isResponsesRootAliasPath(path string) bool {
-	trimmed := strings.TrimRight(strings.TrimSpace(path), "/")
-	if trimmed == "" {
-		return false
-	}
-	return isBareOrSubpathOf(trimmed, "/responses") || isBareOrSubpathOf(trimmed, "/backend-api/codex/responses")
+	return isResponsesRootPath(path)
 }
 
-// isBareOrSubpathOf reports whether path is exactly root, or a subpath
-// rooted at root (i.e. root followed by "/"). This anchors the match
-// at the start of path so it cannot match paths where root appears
-// nested under some other unrelated prefix.
+// isBareOrSubpathOf reports whether path is exactly root, or a subpath rooted
+// at root. It remains used by the non-Responses alias routes (for example
+// alpha/search); Responses itself uses the stricter exact matcher above.
 func isBareOrSubpathOf(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+"/")
 }
@@ -183,8 +205,8 @@ func isBareOrSubpathOf(path, root string) bool {
 //
 // Platform-specific rules:
 //   - OpenAI and Grok text compatibility routes forward to /v1/responses
-//     (with optional subpath such as /v1/responses/compact preserved from
-//     the raw URL); native endpoints such as embeddings and alpha search
+//     (with only the allowlisted /compact or /input_tokens suffix preserved
+//     from the raw URL); native endpoints such as embeddings and alpha search
 //     retain their paths. Grok raw Chat requests override this through the
 //     forwarding result consumed by resolveOpenAIUpstreamEndpoint.
 //   - Anthropic  → /v1/messages
@@ -200,9 +222,9 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 		if inbound == EndpointEmbeddings || inbound == EndpointAlphaSearch || inbound == EndpointResponsesInputTokens || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideosEdits || inbound == EndpointVideosExtensions || inbound == EndpointVideos {
 			return inbound
 		}
-		// OpenAI forwards everything to the Responses API.
-		// Preserve subresource suffix (e.g. /v1/responses/compact,
-		// /v1/responses/compact/detail) as derived from the raw path.
+		// OpenAI forwards compatibility requests to the Responses API. Preserve
+		// only the allowlisted suffixes (compact/input_tokens) derived from the
+		// raw path.
 		if suffix := responsesSubpathSuffix(rawRequestPath); suffix != "" {
 			return EndpointResponses + suffix
 		}
@@ -235,23 +257,30 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	return inbound
 }
 
-// responsesSubpathSuffix extracts the part after "/responses" in a raw
-// request path, e.g. "/openai/v1/responses/compact" → "/compact".
-// Returns "" when there is no meaningful suffix.
+// responsesSubpathSuffix extracts only an allowlisted part after "/responses"
+// in a raw request path. Unknown descendants return "" so they cannot alter
+// the upstream URL even if a caller forgets to run the route guard.
 func responsesSubpathSuffix(rawPath string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(rawPath), "/")
-	idx := strings.LastIndex(trimmed, "/responses")
-	if idx < 0 {
+	trimmed, ok := normalizedExactPath(rawPath)
+	if !ok {
 		return ""
 	}
-	suffix := trimmed[idx+len("/responses"):]
-	if suffix == "" || suffix == "/" {
-		return ""
+	for _, root := range responsesPathRoots {
+		if trimmed == root {
+			return ""
+		}
+		if !strings.HasPrefix(trimmed, root+"/") {
+			continue
+		}
+		suffix := strings.TrimPrefix(trimmed, root)
+		switch suffix {
+		case "/compact", "/input_tokens":
+			return suffix
+		default:
+			return ""
+		}
 	}
-	if !strings.HasPrefix(suffix, "/") {
-		return ""
-	}
-	return suffix
+	return ""
 }
 
 // ──────────────────────────────────────────────────────────

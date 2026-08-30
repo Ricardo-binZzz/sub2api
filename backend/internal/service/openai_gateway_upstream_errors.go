@@ -346,6 +346,9 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	shouldDisable bool,
 	retryableOnSameAccount bool,
 ) *UpstreamFailoverError {
+	if account != nil && account.UsesOpenAICodexProtocol() {
+		responseBody = sanitizeCodexDiagnosticBody(responseBody)
+	}
 	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
 	failoverErr := newOpenAIUpstreamFailoverError(
 		statusCode,
