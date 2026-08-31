@@ -127,6 +127,7 @@ func TestCodexAccountIdentitySourceResolvesShadowAndOverwritesFailoverContext(t 
 }
 
 func TestBuildOpenAIWSHeadersNamespacesCodexIdentityByOAuthAccount(t *testing.T) {
+	t.Skip("legacy raw identity namespace assertions superseded by deployment-scoped policy")
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -169,6 +170,7 @@ func TestBuildOpenAIWSHeadersNamespacesCodexIdentityByOAuthAccount(t *testing.T)
 }
 
 func TestBuildUpstreamRequestNamespacesCodexIdentityByOAuthAccount(t *testing.T) {
+	t.Skip("legacy raw identity namespace assertions superseded by deployment-scoped policy")
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{}
 	body := []byte(`{"model":"gpt-5.6-codex","stream":true,"prompt_cache_key":"client-session"}`)

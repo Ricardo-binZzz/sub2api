@@ -538,15 +538,6 @@ func IsOpenAIResponsesInputTokensRequestPath(c *gin.Context) bool {
 	return openAIResponsesRequestPathSuffix(c) == "/input_tokens"
 }
 
-// rawOpenAIResponsesRequestPathSuffix preserves the historical string-only
-// helper for same-package callers. An unrelated path returns an empty suffix;
-// security-sensitive callers must use rawOpenAIResponsesRequestPathSuffixChecked
-// so they can distinguish that case from a valid root path.
-func rawOpenAIResponsesRequestPathSuffix(c *gin.Context) string {
-	suffix, _ := rawOpenAIResponsesRequestPathSuffixChecked(c)
-	return suffix
-}
-
 // rawOpenAIResponsesRequestPathSuffixChecked extracts a suffix only from a
 // known Responses route root. The bool distinguishes an unrelated request path
 // from a valid root with an empty suffix; callers must fail closed on false.
