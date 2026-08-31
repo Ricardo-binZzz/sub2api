@@ -164,10 +164,6 @@ func isResponsesInputTokensPath(path string) bool {
 	return isExactResponsesPath(path, "/input_tokens")
 }
 
-func isResponsesInputTokensAliasPath(path string) bool {
-	return isResponsesInputTokensPath(path)
-}
-
 // isResponsesCompactAliasPath reports whether path is one of the exact
 // "compact" client endpoints. It intentionally does not accept descendants.
 //
@@ -176,10 +172,6 @@ func isResponsesInputTokensAliasPath(path string) bool {
 //
 // This MUST be checked before isResponsesRootAliasPath, since
 // "/responses" is a prefix of "/responses/compact".
-func isResponsesCompactAliasPath(path string) bool {
-	return isResponsesCompactPath(path)
-}
-
 // isResponsesRootAliasPath reports whether path is one of the exact bare/alias
 // routes that serve the root OpenAI Responses API without a "/v1/" prefix.
 //
@@ -189,10 +181,6 @@ func isResponsesCompactAliasPath(path string) bool {
 // Only the two exact bare/alias roots are recognized here; this deliberately
 // does NOT generalize to any path merely ending in "/responses" (e.g. an
 // unrelated "/foo/responses" must not match).
-func isResponsesRootAliasPath(path string) bool {
-	return isResponsesRootPath(path)
-}
-
 // isBareOrSubpathOf reports whether path is exactly root, or a subpath rooted
 // at root. It remains used by the non-Responses alias routes (for example
 // alpha/search); Responses itself uses the stricter exact matcher above.

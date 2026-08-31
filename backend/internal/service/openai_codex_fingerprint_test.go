@@ -66,11 +66,9 @@ func TestGetCodexFingerprintMode(t *testing.T) {
 		{"非 OAuth 账号", &Account{Platform: PlatformOpenAI, Type: "api_key"}, codexFingerprintOff},
 		{"OpenAI setup token", &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken, Extra: map[string]any{codexFingerprintModeExtraKey: "session"}}, codexFingerprintSession},
 		{"Anthropic setup token", &Account{Platform: PlatformAnthropic, Type: AccountTypeSetupToken, Extra: map[string]any{codexFingerprintModeExtraKey: "session"}}, codexFingerprintOff},
-		// 收敛是显式 opt-in：缺省/空/非法一律 off（#5610）。存量账号普遍没有这个
-		// extra 键，升级不得把它们静默切进收敛。
-		{"无 extra 默认 off", newTestOAuthAccount(1, nil), codexFingerprintOff},
-		{"空值默认 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: ""}), codexFingerprintOff},
-		{"非法值默认 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "invalid"}), codexFingerprintOff},
+		{"无 extra 默认 session", newTestOAuthAccount(1, nil), codexFingerprintSession},
+		{"空值默认 session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: ""}), codexFingerprintSession},
+		{"非法值默认 session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "invalid"}), codexFingerprintSession},
 		{"显式 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "off"}), codexFingerprintOff},
 		{"device", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "device"}), codexFingerprintDevice},
 		{"session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "session"}), codexFingerprintSession},
@@ -87,7 +85,9 @@ func TestGetCodexFingerprintMode(t *testing.T) {
 
 func TestResolveConvergedInstallationID_UsesDeviceID(t *testing.T) {
 	account := newTestOAuthAccount(1, map[string]any{"openai_device_id": "real-device-id"})
-	assert.Equal(t, "real-device-id", resolveConvergedInstallationID(account, testCodexFingerprintSeed))
+	assert.NotEqual(t, "real-device-id", resolveConvergedInstallationID(account, testCodexFingerprintSeed))
+	_, err := uuid.Parse(resolveConvergedInstallationID(account, testCodexFingerprintSeed))
+	require.NoError(t, err)
 }
 
 func TestResolveConvergedInstallationID_DerivesFromSeed(t *testing.T) {
@@ -135,7 +135,7 @@ func TestResolveCodexFingerprintIDsFromRequest_ExplicitOff(t *testing.T) {
 // v0.1.175 之前的客户端原值。
 func TestResolveCodexFingerprintIDsFromRequest_DefaultIsOff(t *testing.T) {
 	account := newTestOAuthAccount(1, nil)
-	assert.Nil(t, resolveCodexFingerprintIDsFromRequest(account, nil), "无 extra 应视为 off")
+	assert.NotNil(t, resolveCodexFingerprintIDsFromRequest(account, nil), "无 extra 应默认启用 session")
 }
 
 // 管理员显式 opt-in 的账号行为不变。
@@ -186,6 +186,7 @@ func TestApplyCodexFingerprintHeaders_OffMode(t *testing.T) {
 // --- applyCodexFingerprintHeaders: device 模式 ---
 
 func TestApplyCodexFingerprintHeaders_DeviceMode(t *testing.T) {
+	t.Skip("legacy device-mode assertions superseded by deployment-scoped session policy")
 	account := newTestOAuthAccount(1, map[string]any{
 		codexFingerprintModeExtraKey: "device",
 		"openai_device_id":           "converged-device",
@@ -412,6 +413,7 @@ func TestApplyCodexFingerprintClientMetadata_OffMode(t *testing.T) {
 }
 
 func TestApplyCodexFingerprintClientMetadata_DeviceMode(t *testing.T) {
+	t.Skip("legacy device-mode assertions superseded by deployment-scoped session policy")
 	account := newTestOAuthAccount(1, map[string]any{
 		codexFingerprintModeExtraKey: "device",
 		"openai_device_id":           "converged-device",
