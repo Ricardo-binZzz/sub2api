@@ -42,7 +42,7 @@ func TestAdminCreateAccountForcesSessionWhenInputIsOff(t *testing.T) {
 	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
 		Name: "codex-oauth-off-input", Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 		SkipDefaultGroupBind: true,
-		Extra: map[string]any{codexFingerprintModeExtraKey: "off"},
+		Extra:                map[string]any{codexFingerprintModeExtraKey: "off"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session", created.Extra[codexFingerprintModeExtraKey])
