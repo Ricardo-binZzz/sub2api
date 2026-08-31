@@ -37,6 +37,18 @@ func TestAdminCreateAccountStripsUserSeedAndCreatesFreshSeedWhenEnabled(t *testi
 	require.Equal(t, "session", created.Extra[codexFingerprintModeExtraKey])
 }
 
+func TestAdminCreateAccountForcesSessionWhenInputIsOff(t *testing.T) {
+	repo := &upstreamBillingProbeAccountRepo{}
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name: "codex-oauth-off-input", Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		SkipDefaultGroupBind: true,
+		Extra: map[string]any{codexFingerprintModeExtraKey: "off"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "session", created.Extra[codexFingerprintModeExtraKey])
+	requireValidCodexFingerprintSeed(t, created.Extra)
+}
+
 func TestAdminUpdateAccountPreservesExistingSeedAndStripsUserSeed(t *testing.T) {
 	accountID := int64(201)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
