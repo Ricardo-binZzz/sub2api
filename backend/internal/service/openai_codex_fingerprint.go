@@ -221,6 +221,10 @@ func prepareCodexFingerprintExtraForCreate(platform, accountType string, extra m
 		return prepared
 	}
 	prepared = normalizeCodexFingerprintModeExtra(prepared)
+	// Newly created/imported OAuth-like accounts always start with the safe
+	// session policy. An administrator can still explicitly switch an existing
+	// account to off through the update path.
+	prepared[codexFingerprintModeExtraKey] = string(codexFingerprintSession)
 	if !codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(prepared)) {
 		return prepared
 	}
