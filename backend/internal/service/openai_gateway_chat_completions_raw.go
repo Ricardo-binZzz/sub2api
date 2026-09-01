@@ -1,7 +1,9 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +37,36 @@ var openaiCCRawAllowedHeaders = map[string]bool{
 	"user-agent":      true,
 }
 
+// normalizeOpenAIChatExtraBody unwraps the SDK-only extra_body object before
+// forwarding requests to strict OpenAI-compatible upstreams.
+func normalizeOpenAIChatExtraBody(body []byte) ([]byte, error) {
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(body, &request); err != nil {
+		return body, nil
+	}
+	rawExtra, exists := request["extra_body"]
+	if !exists {
+		return body, nil
+	}
+	delete(request, "extra_body")
+	if string(rawExtra) != "null" {
+		var extra map[string]json.RawMessage
+		if err := json.Unmarshal(rawExtra, &extra); err != nil {
+			return nil, fmt.Errorf("extra_body must be a JSON object or null")
+		}
+		for key, value := range extra {
+			if key != "extra_body" {
+				request[key] = value
+			}
+		}
+	}
+	normalized, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized request: %w", err)
+	}
+	return bytes.TrimSpace(normalized), nil
+}
+
 // forwardAsRawChatCompletions 直转客户端的 Chat Completions 请求到上游
 // `{base_url}/v1/chat/completions`，**不**做 CC↔Responses 协议转换。
 //
@@ -60,6 +92,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	if normalizedBody, err := normalizeOpenAIChatExtraBody(body); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	} else {
+		body = normalizedBody
+	}
 
 	// 1. Parse minimal fields needed for routing/billing
 	originalModel := gjson.GetBytes(body, "model").String()
