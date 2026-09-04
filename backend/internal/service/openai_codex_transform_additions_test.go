@@ -34,7 +34,7 @@ func TestEnsureCodexReasoningInclude(t *testing.T) {
 // applyCodexClientMetadata：用账号真实 device_id 注入 installation 标识，幂等、不覆盖既有项、不伪造。
 func TestApplyCodexClientMetadata(t *testing.T) {
 	// 仅 OpenAI OAuth 账号才有 device_id（GetOpenAIDeviceID 的门控）。
-	acc := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"openai_device_id": "dev-xyz"}}
+	acc := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"openai_device_id": "dev-xyz", codexFingerprintSeedExtraKey: "seed-xyz"}}
 
 	body := map[string]any{}
 	require.True(t, applyCodexClientMetadata(body, acc))
