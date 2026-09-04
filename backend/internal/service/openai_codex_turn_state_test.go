@@ -388,8 +388,8 @@ func TestBuildOpenAIWSHeaders_CarriesSessionBetaFeatures(t *testing.T) {
 		"WS 握手也必须带会话级 beta 头")
 
 	declared := build(t, oauthAccount, "some_other_feature")
-	require.Equal(t, []string{"some_other_feature"}, declared.Values("x-codex-beta-features"),
-		"客户端已声明时原样保留")
+	require.Equal(t, []string{"remote_compaction_v2"}, declared.Values("x-codex-beta-features"),
+		"Beta feature 由网关统一重建")
 
 	apiKeyHeaders := build(t, &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, "")
 	require.Empty(t, apiKeyHeaders.Get("x-codex-beta-features"),

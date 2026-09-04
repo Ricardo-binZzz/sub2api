@@ -207,7 +207,7 @@ func TestApplyCodexFingerprintHeaders_DeviceMode(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(h.Get("x-codex-turn-metadata")), &meta))
 	assert.Equal(t, "converged-device", meta["installation_id"])
 	assert.Equal(t, "user-session", meta["session_id"], "device 模式不改写 session_id")
-	assert.Equal(t, "seccomp", meta["sandbox"], "非指纹字段保留原样")
+	assert.Nil(t, meta["sandbox"], "私有字段应被清洗")
 }
 
 // --- applyCodexFingerprintHeaders: session 模式 ---
@@ -249,8 +249,8 @@ func TestApplyCodexFingerprintHeaders_SessionMode(t *testing.T) {
 	assert.Equal(t, convergedSession, meta["session_id"])
 	assert.Equal(t, convergedThread, meta["thread_id"])
 	assert.NotEqual(t, "user-turn", meta["turn_id"], "turn_id 应被新生成的值替换")
-	assert.Equal(t, "seccomp", meta["sandbox"], "sandbox 保留原样")
-	assert.Equal(t, "user", meta["thread_source"], "thread_source 保留原样")
+	assert.Nil(t, meta["sandbox"], "私有字段应被清洗")
+	assert.Nil(t, meta["thread_source"], "私有字段应被清洗")
 }
 
 // --- session 模式：不同客户端得到不同 thread ---
@@ -444,7 +444,7 @@ func TestApplyCodexFingerprintClientMetadata_DeviceMode(t *testing.T) {
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal([]byte(turnMetaStr), &meta))
 	assert.Equal(t, "converged-device", meta["installation_id"])
-	assert.Equal(t, "seccomp", meta["sandbox"], "非指纹字段保留原样")
+	assert.Nil(t, meta["sandbox"], "私有字段应被清洗")
 }
 
 func TestApplyCodexFingerprintClientMetadata_SessionMode(t *testing.T) {
@@ -489,7 +489,7 @@ func TestApplyCodexFingerprintClientMetadata_SessionMode(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(turnMetaStr), &meta))
 	assert.Equal(t, convergedInstall, meta["installation_id"])
 	assert.Equal(t, convergedSession, meta["session_id"])
-	assert.Equal(t, "seccomp", meta["sandbox"], "非指纹字段保留原样")
+	assert.Nil(t, meta["sandbox"], "私有字段应被清洗")
 }
 
 func TestApplyCodexFingerprintClientMetadata_FullMode(t *testing.T) {
@@ -894,7 +894,7 @@ func TestBuildUpstreamRequestOpenAIPassthrough_AppliesStagedFingerprint(t *testi
 	turnMetadata := req.Header.Get("x-codex-turn-metadata")
 	require.NotEmpty(t, turnMetadata)
 	assert.Contains(t, turnMetadata, ids.sessionID, "turn-metadata JSON 中的 session_id 应被收敛")
-	assert.Contains(t, turnMetadata, `"sandbox":"seatbelt"`, "turn-metadata 未指定字段应原样保留")
+	assert.NotContains(t, turnMetadata, `"sandbox":"seatbelt"`, "私有 turn-metadata 字段应被清洗")
 }
 
 func TestBuildUpstreamRequestOpenAIPassthrough_OffModeKeepsIsolatedSession(t *testing.T) {
