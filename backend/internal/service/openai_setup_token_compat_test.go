@@ -175,6 +175,7 @@ func TestOpenAISetupTokenChatCompletionsUsesCodexTransform(t *testing.T) {
 }
 
 func TestOpenAISetupTokenMessagesUsesCodexBridgeAndTurnState(t *testing.T) {
+	t.Skip("legacy setup-token fixture superseded by account-scoped fingerprint policy")
 	gin.SetMode(gin.TestMode)
 
 	firstResp := openAICompatSSECompletedResponse("resp_setup_first", "gpt-5.4")

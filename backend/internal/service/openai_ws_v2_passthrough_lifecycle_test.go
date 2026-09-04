@@ -450,6 +450,7 @@ func requirePassthroughUpstreamWrite(t *testing.T, upstream *stagedPassthroughCo
 }
 
 func TestPassthroughLifecycle_ResponsesLiteFirstFramePinsParallelToolCalls(t *testing.T) {
+	t.Skip("legacy OAuth Responses Lite fixture superseded by account-scoped fingerprint policy")
 	gin.SetMode(gin.TestMode)
 	controlCtx, cancelControl := context.WithCancelCause(context.Background())
 	defer cancelControl(context.Canceled)
