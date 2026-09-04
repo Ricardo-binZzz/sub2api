@@ -40,7 +40,8 @@ func TestApplyCodexClientMetadata(t *testing.T) {
 	require.True(t, applyCodexClientMetadata(body, acc))
 	cm, ok := body["client_metadata"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "dev-xyz", cm["x-codex-installation-id"])
+	require.NotEmpty(t, cm["x-codex-installation-id"])
+	require.NotEqual(t, "dev-xyz", cm["x-codex-installation-id"])
 	// 幂等
 	require.False(t, applyCodexClientMetadata(body, acc))
 
