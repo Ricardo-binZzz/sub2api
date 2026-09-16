@@ -766,6 +766,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				// Follow-up turns on this bridge retain their own upstream state;
 				// publishing it by session hash would leak it to independent bridges.
 				turnState = bridgeTurnState
+				s.noteOpenAICodexTurnStateProvenance(c, account)
 			}
 			responseID := strings.TrimSpace(result.RequestID)
 			if responseID != "" && stateStore != nil {

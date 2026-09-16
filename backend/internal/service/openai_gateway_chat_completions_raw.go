@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamtiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -347,6 +348,11 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
+					if value, ok := c.Get("deepseek_upstream_timing"); ok {
+						if timing, ok := value.(*upstreamtiming.Trace); ok {
+							timing.FirstSSE()
+						}
+					}
 				}
 			}
 		}

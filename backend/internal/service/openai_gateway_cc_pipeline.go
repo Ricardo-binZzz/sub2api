@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamtiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -183,9 +186,31 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	grokCacheIdentity string,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var timing *upstreamtiming.Trace
+	if account.Platform == "deepseek" && os.Getenv("DEEPSEEK_UPSTREAM_TIMING") == "true" {
+		keyID := getAPIKeyIDFromContext(c)
+		accountID := account.ID
+		requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		bodyBytes := len(body)
+		attempt := c.GetInt("deepseek_timing_attempt") + 1
+		c.Set("deepseek_timing_attempt", attempt)
+		timing = upstreamtiming.New(func(snapshot upstreamtiming.Snapshot) {
+			logger.L().Info("deepseek.upstream_timing",
+				zap.String("request_id", requestID),
+				zap.String("client_request_id", clientRequestID), zap.Int("attempt", attempt),
+				zap.Int64("api_key_id", keyID), zap.Int64("account_id", accountID),
+				zap.Int("body_bytes", bodyBytes), zap.Any("timing", snapshot))
+		})
+		upstreamCtx = timing.Context(upstreamCtx)
+		c.Set("deepseek_upstream_timing", timing)
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	// 记录本次实际选择的协议端点，供错误日志和用量日志在没有
@@ -231,7 +256,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if timing != nil {
+		timing.Wrap(resp)
 	}
 	return resp, nil
 }
@@ -302,6 +333,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+			if value, ok := c.Get("deepseek_upstream_timing"); ok {
+				if timing, ok := value.(*upstreamtiming.Trace); ok {
+					timing.FirstSSE()
+				}
+			}
 		}
 		emit(&chunk)
 	}

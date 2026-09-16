@@ -33,7 +33,10 @@ func openAICodexTurnStateSeed(c *gin.Context) string {
 	if c == nil || c.Request == nil {
 		return ""
 	}
-	sessionID := extractClientSessionID(c.Request.Header)
+	sessionID := strings.TrimSpace(c.GetString(openAIWSIngressSessionHashContextKey))
+	if sessionID == "" {
+		sessionID = extractClientSessionID(c.Request.Header)
+	}
 	if sessionID == "" {
 		return ""
 	}
