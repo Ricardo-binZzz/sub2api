@@ -95,6 +95,20 @@ func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	require.Less(t, len(metaPayload)*4, len(fullPayload))
 }
 
+func TestSchedulerMetadataAccountKeepsCodexTicketPolicy(t *testing.T) {
+	metadata := buildSchedulerMetadataAccount(service.Account{
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+		Extra: map[string]any{
+			"openai_codex_ticket_enabled": false,
+			"codex_turn_ticket:gpt-5.6-sol": map[string]any{"state": "secret"},
+		},
+	})
+
+	require.Equal(t, false, metadata.Extra["openai_codex_ticket_enabled"])
+	require.NotContains(t, metadata.Extra, "codex_turn_ticket:gpt-5.6-sol")
+}
+
 func TestSchedulerMetadataAccountDropsInvalidUpstreamBillingProbe(t *testing.T) {
 	for _, probe := range []any{
 		"invalid",

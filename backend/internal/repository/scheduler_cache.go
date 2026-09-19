@@ -1016,6 +1016,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
+		// 292 门票是账号级策略：调度快照必须保留开关，才能让关闭该功能的
+		// OAuth 账号跳过门票门控；具体 codex_turn_ticket 内容仍不进入快照。
+		"openai_codex_ticket_enabled",
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"codex_5h_used_percent",
