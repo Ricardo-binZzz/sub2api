@@ -205,3 +205,29 @@ func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	svc.refreshOpenAICodexTickets(context.Background())
 	require.Empty(t, upstream.requests)
 }
+
+func TestCodexTicketPolicyHonorsAccountOptOut(t *testing.T) {
+	account := ticketTestAccount(41)
+	account.Status = StatusActive
+	account.Extra = map[string]any{openAICodexTicketEnabledExtraKey: false}
+	cfg := config.OpenAICodexTicketConfig{
+		Enabled:         true,
+		FailClosed:      true,
+		HarvestProxyURL: "http://proxy.example.com:8080",
+		Models:          []string{"gpt-6-astra"},
+	}
+	upstream := &httpUpstreamRecorder{}
+	svc := ticketTestService(t, cfg, upstream)
+	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*account}}
+
+	require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+	headers := http.Header{}
+	headers.Set(openAICodexTurnStateHeader, "client-state")
+	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
+	require.Equal(t, "client-state", headers.Get(openAICodexTurnStateHeader))
+	require.Empty(t, OpenAICodexTicketStatuses(account, cfg, time.Now()))
+
+	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	svc.refreshOpenAICodexTickets(context.Background())
+	require.Empty(t, upstream.requests)
+}

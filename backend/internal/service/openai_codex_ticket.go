@@ -24,6 +24,7 @@ import (
 
 const (
 	openAICodexTicketExtraKeyPrefix  = "codex_turn_ticket:"
+	openAICodexTicketEnabledExtraKey = "openai_codex_ticket_enabled"
 	openAICodexAstraMinVersion       = "0.153.4"
 	openAICodexTicketStatePrefix     = "gAAAAA"
 	openAICodexTicketDefaultModel    = "gpt-6-astra"
@@ -660,7 +661,13 @@ func IsMaskedProxyURL(raw string) bool {
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
 func isOpenAICodexTicketAccount(account *Account) bool {
-	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow()
+	if account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() {
+		return false
+	}
+	if enabled, ok := account.Extra[openAICodexTicketEnabledExtraKey].(bool); ok {
+		return enabled
+	}
+	return true
 }
 
 // IsOpenAICodexTicketPrivateExtraKey also covers the retired account-level proxy

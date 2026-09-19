@@ -668,6 +668,8 @@ export default {
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
         codexTurnTicket: 'Codex 292 ticket',
+        codexTicketAccountEnabled: 'Enable 292 ticket harvesting',
+        codexTicketAccountEnabledDesc: 'When the global switch is on, harvest and inject tickets for this account only. Turn this off to keep its original forwarding path without ticket gating.',
         codexTurnTicketDesc: 'Ticket status for the configured models. Requests are paused without a valid ticket only when fail-closed is enabled.',
         codexTurnTicketMissing: 'No valid ticket; requests remain allowed',
         codexTurnTicketReady: '{time} left',
