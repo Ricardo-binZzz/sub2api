@@ -200,7 +200,7 @@ func TestFinalizeOpenAICodexRequestHeadersRebuildsStrictly(t *testing.T) {
 	require.Empty(t, headers.Get("Cookie"))
 	require.Empty(t, headers.Get("Traceparent"))
 	require.Empty(t, headers.Get("X-Request-Timeout"))
-	require.Equal(t, "raw-device-id", headers.Get("X-Codex-Installation-ID"))
+	require.NotEqual(t, "raw-device-id", headers.Get("X-Codex-Installation-ID"))
 }
 
 func TestFinalizeOpenAICodexRequestHeadersDropsTurnStateFromAnotherAccount(t *testing.T) {

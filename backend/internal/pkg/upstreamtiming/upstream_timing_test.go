@@ -21,7 +21,9 @@ func TestTracePreservesResponseAndContext(t *testing.T) {
 			t.Error("request modified")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, payload)
+		if _, err := io.WriteString(w, payload); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 	var snapshots []Snapshot
@@ -40,7 +42,9 @@ func TestTracePreservesResponseAndContext(t *testing.T) {
 	}
 	trace.FirstSSE()
 	trace.FirstSSE()
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 	trace.Finish(false)
 	if len(snapshots) != 2 {
 		t.Fatalf("snapshot count %d", len(snapshots))
@@ -86,7 +90,9 @@ func TestConcurrentCallbacksAreBounded(t *testing.T) {
 
 func TestHTTP2ConnectionReuse(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "data: {}\n\n")
+		if _, err := io.WriteString(w, "data: {}\n\n"); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
@@ -101,8 +107,12 @@ func TestHTTP2ConnectionReuse(t *testing.T) {
 			t.Fatal(err)
 		}
 		trace.Wrap(resp)
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			t.Fatal(err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
 		s := trace.snapshot("test")
 		if s.Protocol != "HTTP/2.0" {
 			t.Fatalf("unexpected protocol %s", s.Protocol)

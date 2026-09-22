@@ -414,7 +414,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		upstreamReq.Header.Set("x-codex-turn-state", compatTurnState)
 	}
 	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
-		s.finalizeOpenAICodexRequestHeaders(c, account, upstreamReq.Header, isOpenAIResponsesCompactPath(c), isStream)
+		// The device wire profile has already projected the bridge identity in
+		// buildUpstreamRequest. The legacy finalizer would erase its hyphenated
+		// session headers and re-add the obsolete responses beta header.
+		if !codexDeviceWireProfileEnabled(c, account) {
+			s.finalizeOpenAICodexRequestHeaders(c, account, upstreamReq.Header, isOpenAIResponsesCompactPath(c), isStream)
+			if strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)) == "" {
+				upstreamReq.Header.Del(openAIWSTurnMetadataHeader)
+			}
+		}
 	}
 	if err := s.applyOpenAICodexTicket(ctx, account, upstreamModel, upstreamReq.Header); err != nil {
 		return nil, err

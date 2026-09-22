@@ -114,7 +114,7 @@ func TestSchedulerMetadataAccountKeepsCodexTicketPolicy(t *testing.T) {
 		Platform: service.PlatformOpenAI,
 		Type:     service.AccountTypeOAuth,
 		Extra: map[string]any{
-			"openai_codex_ticket_enabled": false,
+			"openai_codex_ticket_enabled":   false,
 			"codex_turn_ticket:gpt-5.6-sol": map[string]any{"state": "secret"},
 		},
 	})

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -172,6 +173,12 @@ func codexFingerprintSeed(extra map[string]any) (string, bool) {
 
 func prepareCodexFingerprintExtraForCreate(platform, accountType string, extra map[string]any) map[string]any {
 	prepared := stripCodexFingerprintSeed(extra)
+	if platform == PlatformOpenAI && (accountType == AccountTypeOAuth || accountType == AccountTypeSetupToken) &&
+		codexFingerprintModeFromExtra(prepared) == codexFingerprintOff {
+		if raw, explicitlySet := prepared[codexFingerprintModeExtraKey]; explicitlySet && strings.EqualFold(strings.TrimSpace(fmt.Sprint(raw)), string(codexFingerprintOff)) {
+			prepared[codexFingerprintModeExtraKey] = string(codexFingerprintSession)
+		}
+	}
 	if platform != PlatformOpenAI || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || !codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(prepared)) {
 		return prepared
 	}
@@ -255,19 +262,21 @@ func deriveStableUUIDv4(seed string) string {
 		b[10:16])
 }
 
-// resolveConvergedInstallationID 返回账号级恒定的 installation_id。
-// 优先使用管理员配置的真实 device_id，无则从系统管理的账号随机种子确定性派生。
+// resolveConvergedInstallationID 返回部署内账号级恒定的 installation_id。
+// 原始 device_id 只参与派生，绝不直接发送到上游。
 func resolveConvergedInstallationID(account *Account, seed string) string {
 	if account == nil {
 		return ""
 	}
-	if deviceID := account.GetOpenAIDeviceID(); deviceID != "" {
-		return deviceID
-	}
 	if seed == "" {
 		return ""
 	}
-	return deriveStableUUIDv4("sub2api:codex-install-id:v2:" + seed)
+	namespace := codexFingerprintDeploymentNamespace()
+	deviceID := strings.TrimSpace(account.GetOpenAIDeviceID())
+	message := "sub2api:codex-install-id:v3:" + namespace + ":" + seed + ":" + deviceID
+	mac := hmac.New(sha256.New, []byte(namespace))
+	_, _ = mac.Write([]byte(message))
+	return deriveStableUUIDv4(fmt.Sprintf("%x", mac.Sum(nil)))
 }
 
 // resolveConvergedSessionID 返回账号级恒定的 session_id。

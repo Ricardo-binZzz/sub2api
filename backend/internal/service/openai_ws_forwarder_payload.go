@@ -136,6 +136,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 客户端未声明时补成默认形态，与 HTTP 出站保持一致。放在客户端头拷贝
 	// 之外：该头是账号/会话级属性，不依赖入站请求是否存在，也避免预热与
 	// 实际请求因头差异落进不同的连接池兼容分桶。
+	if account != nil && account.UsesOpenAICodexProtocol() {
+		headers.Del("x-codex-beta-features")
+	}
 	applyOpenAICodexBetaFeatures(c, account, headers)
 	// OAuth 账号：将 apiKeyID 混入 session 标识符，防止跨用户会话碰撞。
 	if account != nil && account.UsesOpenAICodexProtocol() {

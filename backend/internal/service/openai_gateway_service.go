@@ -23,8 +23,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/singleflight"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 const (

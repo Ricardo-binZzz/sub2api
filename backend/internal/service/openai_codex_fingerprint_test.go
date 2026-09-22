@@ -87,7 +87,10 @@ func TestGetCodexFingerprintMode(t *testing.T) {
 
 func TestResolveConvergedInstallationID_UsesDeviceID(t *testing.T) {
 	account := newTestOAuthAccount(1, map[string]any{"openai_device_id": "real-device-id"})
-	assert.Equal(t, "real-device-id", resolveConvergedInstallationID(account, testCodexFingerprintSeed))
+	result := resolveConvergedInstallationID(account, testCodexFingerprintSeed)
+	assert.NotEqual(t, "real-device-id", result)
+	_, err := uuid.Parse(result)
+	require.NoError(t, err)
 }
 
 func TestResolveConvergedInstallationID_DerivesFromSeed(t *testing.T) {
@@ -199,12 +202,12 @@ func TestApplyCodexFingerprintHeaders_DeviceMode(t *testing.T) {
 	ids := resolveCodexFingerprintIDsFromRequest(nil, account, nil)
 	applyCodexFingerprintHeaders(h, ids)
 
-	assert.Equal(t, "converged-device", h.Get("x-codex-installation-id"), "installation_id 应收敛")
+	assert.Equal(t, ids.installationID, h.Get("x-codex-installation-id"), "installation_id 应收敛")
 	assert.Equal(t, "user-window:0", h.Get("x-codex-window-id"), "device 模式不改写 window_id")
 
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal([]byte(h.Get("x-codex-turn-metadata")), &meta))
-	assert.Equal(t, "converged-device", meta["installation_id"])
+	assert.Equal(t, ids.installationID, meta["installation_id"])
 	assert.Equal(t, "user-session", meta["session_id"], "device 模式不改写 session_id")
 	assert.Equal(t, "seccomp", meta["sandbox"], "非指纹字段保留原样")
 }
@@ -433,14 +436,14 @@ func TestApplyCodexFingerprintClientMetadata_DeviceMode(t *testing.T) {
 
 	cm, ok := reqBody["client_metadata"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "converged-device", cm["x-codex-installation-id"])
+	assert.Equal(t, ids.installationID, cm["x-codex-installation-id"])
 	assert.Equal(t, "user-session", cm["session_id"], "device 模式不改 session_id")
 
 	turnMetaStr, ok := cm["x-codex-turn-metadata"].(string)
 	require.True(t, ok)
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal([]byte(turnMetaStr), &meta))
-	assert.Equal(t, "converged-device", meta["installation_id"])
+	assert.Equal(t, ids.installationID, meta["installation_id"])
 	assert.Equal(t, "seccomp", meta["sandbox"], "非指纹字段保留原样")
 }
 
