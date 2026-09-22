@@ -1222,9 +1222,12 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 }
 
 // OpenAICodexTicketConfig 控制 ChatGPT OAuth 的 x-codex-turn-state 门票。
+// Mode=adaptive（默认）交给 turn-state 形态观察/hunter 处理；Mode=strict
+// 启用旧的精确 292 打票器。
 // 打票走 harvest_proxy_url（SOCKS），业务出站仍用账号住宅 proxy_id，只替换该请求头。
 // 门票默认有效 3600 秒，临近过期前 refresh_before_seconds 重新打票。
 type OpenAICodexTicketConfig struct {
+	Mode                         string   `mapstructure:"mode"`
 	Enabled                      bool     `mapstructure:"enabled"`
 	TargetLength                 int      `mapstructure:"target_length"`
 	TTLSeconds                   int      `mapstructure:"ttl_seconds"`
@@ -2399,6 +2402,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
+	viper.SetDefault("gateway.openai_codex_ticket.mode", "adaptive")
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
 	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
 	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 3600)

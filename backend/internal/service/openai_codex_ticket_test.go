@@ -66,6 +66,17 @@ func TestApplyOpenAICodexTicket_ReplacesHeader(t *testing.T) {
 	require.Equal(t, 292, len(h.Get(openAICodexTurnStateHeader)))
 }
 
+func TestApplyOpenAICodexTicket_AdaptivePolicyLeavesHeaderToTurnStateController(t *testing.T) {
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
+		Mode:    "adaptive",
+		Enabled: true,
+	}, nil)
+	headers := make(http.Header)
+	headers.Set(openAICodexTurnStateHeader, "natural-state")
+	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), ticketTestAccount(99), "gpt-6-astra", headers))
+	require.Equal(t, "natural-state", headers.Get(openAICodexTurnStateHeader))
+}
+
 func TestApplyOpenAICodexTicket_DoesNotReuseOtherModelOrAccount(t *testing.T) {
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{
 		Enabled:         true,

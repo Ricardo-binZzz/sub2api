@@ -66,6 +66,11 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 	if s != nil && s.cfg != nil {
 		cfg = s.cfg.Gateway.OpenAICodexTicket
 	}
+	// Empty mode preserves compatibility for programmatic/test configs created
+	// before adaptive mode existed. Deployed config defaults explicitly to adaptive.
+	if strings.TrimSpace(cfg.Mode) == "" {
+		cfg.Mode = "strict"
+	}
 	if cfg.TargetLength <= 0 {
 		cfg.TargetLength = 292
 	}
@@ -85,6 +90,15 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 		cfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
 	}
 	return cfg
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketStrict() bool {
+	return openAICodexTicketStrictMode(s.openAICodexTicketConfig())
+}
+
+func openAICodexTicketStrictMode(cfg config.OpenAICodexTicketConfig) bool {
+	mode := strings.TrimSpace(cfg.Mode)
+	return mode == "" || strings.EqualFold(mode, "strict")
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketGatedModel(model string) bool {
@@ -111,7 +125,7 @@ type OpenAICodexTicketStatus struct {
 }
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time) []OpenAICodexTicketStatus {
-	if !cfg.Enabled || !isOpenAICodexTicketAccount(account) {
+	if !cfg.Enabled || !openAICodexTicketStrictMode(cfg) || !isOpenAICodexTicketAccount(account) {
 		return nil
 	}
 	models, targetLen := cfg.Models, cfg.TargetLength
@@ -154,7 +168,7 @@ func (s *OpenAIGatewayService) openAICodexTicketEnabled() bool {
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketEnabledContext(ctx context.Context) bool {
-	if s == nil {
+	if s == nil || !s.openAICodexTicketStrict() {
 		return false
 	}
 	fallback := s.cfg != nil && s.cfg.Gateway.OpenAICodexTicket.Enabled
