@@ -200,7 +200,7 @@ func TestFinalizeOpenAICodexRequestHeadersRebuildsStrictly(t *testing.T) {
 	require.Empty(t, headers.Get("Cookie"))
 	require.Empty(t, headers.Get("Traceparent"))
 	require.Empty(t, headers.Get("X-Request-Timeout"))
-	require.NotContains(t, headers.Get("X-Codex-Installation-ID"), "raw-device-id")
+	require.Equal(t, "raw-device-id", headers.Get("X-Codex-Installation-ID"))
 }
 
 func TestFinalizeOpenAICodexRequestHeadersDropsTurnStateFromAnotherAccount(t *testing.T) {
@@ -222,23 +222,22 @@ func TestFinalizeOpenAICodexRequestHeadersDropsTurnStateFromAnotherAccount(t *te
 	headers := make(http.Header)
 	headers.Set(openAICodexTurnStateHeader, "opaque-state-from-other-account")
 	svc := &OpenAIGatewayService{}
-	seed := openAICodexTurnStateSeed(c)
-	svc.openaiCodexTurnStateOrigins.Store(seed, openAICodexTurnStateOrigin{
-		accountID: 999,
+	svc.openaiCodexTurnStateOrigins.Store(openAICodexTurnStateKey("opaque-state-from-other-account"), openAICodexTurnStateOrigin{
+		owner:     "id:999",
 		expiresAt: time.Now().Add(time.Minute),
 	})
 	svc.finalizeOpenAICodexRequestHeaders(c, account, headers, false, false)
 	require.Empty(t, headers.Get(openAICodexTurnStateHeader))
 }
 
-func TestCodexFingerprintModeDefaultsToSession(t *testing.T) {
+func TestCodexFingerprintModeDefaultsToOff(t *testing.T) {
 	for _, extra := range []map[string]any{
 		nil,
 		map[string]any{codexFingerprintModeExtraKey: ""},
 		map[string]any{codexFingerprintModeExtraKey: "invalid"},
 	} {
 		account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: extra}
-		require.Equal(t, codexFingerprintSession, account.GetCodexFingerprintMode())
+		require.Equal(t, codexFingerprintOff, account.GetCodexFingerprintMode())
 	}
 	account := &Account{
 		ID:       2,

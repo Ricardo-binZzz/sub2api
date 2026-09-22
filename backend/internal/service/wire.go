@@ -181,10 +181,11 @@ func ProvideOpenAIQuotaService(
 	accountRepo AccountRepository,
 	proxyRepo ProxyRepository,
 	tokenProvider *OpenAITokenProvider,
-	privacyClientFactory PrivacyClientFactory,
+	codexBackendClientFactory CodexBackendClientFactory,
 	openAIGatewayService *OpenAIGatewayService,
 ) *OpenAIQuotaService {
-	service := NewOpenAIQuotaService(accountRepo, proxyRepo, tokenProvider, privacyClientFactory)
+	// 额度面走不做浏览器伪装的客户端，与推理面自报同一个 Codex 身份。
+	service := NewOpenAIQuotaService(accountRepo, proxyRepo, tokenProvider, PrivacyClientFactory(codexBackendClientFactory))
 	service.agentIdentityWS = openAIGatewayService
 	return service
 }
@@ -225,6 +226,7 @@ func ProvideAccountUsageService(
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	openAIGatewayService *OpenAIGatewayService,
+	cfg *config.Config,
 ) *AccountUsageService {
 	service := NewAccountUsageService(
 		accountRepo,
@@ -238,8 +240,8 @@ func ProvideAccountUsageService(
 		cache,
 		identityCache,
 		tlsFPProfileService,
+		cfg,
 	)
-	service.agentIdentityWS = openAIGatewayService
 	return service
 }
 
@@ -418,6 +420,17 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	svc := NewSubscriptionExpiryService(userSubRepo, time.Minute)
 	svc.SetSettingRepository(settingRepo)
 	svc.SetNotificationEmailService(notificationEmailService)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
+// ProvideOpenAITurnStateHunterService creates and starts OpenAITurnStateHunterService.
+// 只对显式开了猎手的 Codex oauth 账号工作；持 leader lock，多实例不会成倍探测。
+func ProvideOpenAITurnStateHunterService(gateway *OpenAIGatewayService, accountRepo AccountRepository, proxyRepo ProxyRepository, exitProber ProxyExitInfoProber, apiKeyService *APIKeyService, subscriptionService *SubscriptionService, lockCache LeaderLockCache, db *sql.DB) *OpenAITurnStateHunterService {
+	svc := NewOpenAITurnStateHunterService(gateway, accountRepo, proxyRepo, exitProber, openAITurnStateHunterInterval)
+	svc.SetAPIKeys(apiKeyService)
+	svc.SetSubscriptions(subscriptionService)
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
@@ -913,6 +926,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAICodexVersionSyncService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
+	ProvideOpenAITurnStateHunterService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,
