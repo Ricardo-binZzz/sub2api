@@ -718,7 +718,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSnapshot          []byte
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
-		currentExtraJSON             []byte
+		currentExtraJSON               []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
