@@ -94,6 +94,21 @@ func TestResponsesToAnthropic_FunctionToolSchemaUnchanged(t *testing.T) {
 	assert.JSONEq(t, string(parameters), string(tools[0].InputSchema))
 }
 
+func TestResponsesToAnthropic_FlattensTopLevelToolSchemaUnion(t *testing.T) {
+	parameters := json.RawMessage(`{"oneOf":[{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]},{"type":"object","properties":{"value":{"type":"integer"},"flag":{"type":"boolean"}},"required":["value"]}]}`)
+	tools := convertResponsesToAnthropicTools([]ResponsesTool{{
+		Type:       "function",
+		Name:       "choose_value",
+		Parameters: parameters,
+	}})
+
+	require.Len(t, tools, 1)
+	schema := requireObjectInputSchema(t, tools[0].InputSchema)
+	assert.NotContains(t, schema, "oneOf")
+	assert.JSONEq(t, `{"value":{"anyOf":[{"type":"string"},{"type":"integer"}]},"flag":{"type":"boolean"}}`, string(schema["properties"]))
+	assert.JSONEq(t, `["value"]`, string(schema["required"]))
+}
+
 func TestResponsesToAnthropic_MixedToolsProduceValidAnthropicTools(t *testing.T) {
 	tools := convertResponsesToAnthropicTools([]ResponsesTool{
 		{
