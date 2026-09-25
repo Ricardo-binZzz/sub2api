@@ -65,6 +65,7 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	codexTicketSettings     *service.SettingService
 	cfg                     *config.Config
 	opencodeGoUsage         *service.OpenCodeGoUsageService
 }
@@ -80,6 +81,11 @@ func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUs
 
 func (h *AccountHandler) SetOpenCodeGoUsageService(usage *service.OpenCodeGoUsageService) {
 	h.opencodeGoUsage = usage
+}
+
+// SetCodexTicketSettings supplies the live policy without mutating shared config.
+func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
+	h.codexTicketSettings = settings
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -122,7 +128,7 @@ type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account cpr"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -142,7 +148,7 @@ type CreateAccountRequest struct {
 type UpdateAccountRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account cpr"`
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -342,6 +348,7 @@ const accountListGroupUngroupedQueryValue = "ungrouped"
 
 func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
 	out := dto.AccountFromService(account)
+	h.enrichCodexTicketStatus(account, out)
 	if h != nil && h.ollamaCloudUsage != nil && out != nil {
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
@@ -350,6 +357,7 @@ func (h *AccountHandler) accountResponseFromService(account *service.Account) *d
 
 func (h *AccountHandler) accountListResponseFromService(account *service.Account) *dto.Account {
 	out := dto.AccountFromServiceShallow(account)
+	h.enrichCodexTicketStatus(account, out)
 	if out != nil && account != nil {
 		out.Proxy = dto.ProxyFromService(account.Proxy)
 	}
@@ -357,6 +365,16 @@ func (h *AccountHandler) accountListResponseFromService(account *service.Account
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
 	return out
+}
+
+func (h *AccountHandler) enrichCodexTicketStatus(account *service.Account, out *dto.Account) {
+	if h != nil && h.cfg != nil && out != nil {
+		cfg := h.cfg.Gateway.OpenAICodexTicket
+		if h.codexTicketSettings != nil {
+			cfg.Enabled = h.codexTicketSettings.GetOpenAICodexTicketEnabled(context.Background(), cfg.Enabled)
+		}
+		out.CodexTurnTickets = service.OpenAICodexTicketStatuses(account, cfg, time.Now())
+	}
 }
 
 func (h *AccountHandler) isSimpleMode() bool {
@@ -1031,6 +1049,18 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if err := service.ValidateOpenAITurnStateOverrideExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateAutoExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateHunterExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
@@ -1165,6 +1195,18 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateOverrideExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateAutoExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateHunterExtra(req.Extra); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -1309,7 +1351,7 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	}
 
 	if h.rateLimitService != nil {
-		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID); err != nil {
+		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID, service.AccountTestCredentialsOnly(c)); err != nil {
 			_ = c.Error(err)
 		}
 	}
@@ -1627,6 +1669,18 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if err := service.ValidateOpenAITurnStateOverrideExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateAutoExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateHunterExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	// Re-auth only returns authentication fields. Preserve account configuration
 	// stored alongside them (for example model_mapping), while allowing the new
@@ -1642,6 +1696,13 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	// 换了 ChatGPT 账号：旧账号铸的 turn-state 票对新凭据是跨凭证域回放，清掉运行态。
+	if service.OpenAITurnStateIdentityChanged(existing, req.Credentials) {
+		if clearErr := h.adminService.ClearOpenAITurnStateRuntimeExtra(ctx, accountID); clearErr != nil {
+			slog.Warn("apply_oauth_credentials.clear_turn_state_failed", "account_id", accountID, "err", clearErr)
+		}
 	}
 
 	// 增量合并 Extra（JSONB key 级 merge，绝不覆盖 base_rpm / window_cost_limit /
@@ -2121,6 +2182,33 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				})
 				continue
 			}
+			if err := service.ValidateOpenAITurnStateOverrideExtra(item.Extra); err != nil {
+				failed++
+				results = append(results, gin.H{
+					"name":    item.Name,
+					"success": false,
+					"error":   err.Error(),
+				})
+				continue
+			}
+			if err := service.ValidateOpenAITurnStateAutoExtra(item.Extra); err != nil {
+				failed++
+				results = append(results, gin.H{
+					"name":    item.Name,
+					"success": false,
+					"error":   err.Error(),
+				})
+				continue
+			}
+			if err := service.ValidateOpenAITurnStateHunterExtra(item.Extra); err != nil {
+				failed++
+				results = append(results, gin.H{
+					"name":    item.Name,
+					"success": false,
+					"error":   err.Error(),
+				})
+				continue
+			}
 
 			skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
 
@@ -2316,6 +2404,18 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateOverrideExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateAutoExtra(req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := service.ValidateOpenAITurnStateHunterExtra(req.Extra); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

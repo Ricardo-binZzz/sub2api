@@ -1021,6 +1021,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
+		// 292 门票是账号级策略：调度快照必须保留开关，才能让关闭该功能的
+		// OAuth 账号跳过门票门控；具体 codex_turn_ticket 内容仍不进入快照。
+		"openai_codex_ticket_enabled",
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"codex_5h_used_percent",
@@ -1030,6 +1033,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"codex_5h_reset_after_seconds",
 		"codex_7d_reset_after_seconds",
 		"codex_usage_updated_at",
+		// cpr 的订阅档位：订阅优先调度分梯队靠它。oauth 的 plan_type 在 credentials
+		// 里、由凭据投影保留；cpr 的在 extra 里，不进白名单就只剩 DB 回退那一次
+		// 能看到，Redis 命中路径上恒被当作非订阅号降到第二梯队。
+		service.CPRPlanTypeExtraKey,
 		"auto_pause_5h_threshold",
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",

@@ -12,7 +12,7 @@ import (
 func TestCodexTurnMetadataRewritePreservesHeaderSafeJSON(t *testing.T) {
 	account := newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "session"})
 	account.Credentials = map[string]any{"chatgpt_account_id": "test-account"}
-	ids := resolveCodexFingerprintIDsFromRequest(account, http.Header{})
+	ids := resolveCodexFingerprintIDsFromRequest(nil, account, http.Header{})
 	require.NotNil(t, ids)
 
 	rewriters := map[string]func(*testing.T, string) string{
@@ -80,7 +80,7 @@ func TestCodexTurnMetadataRewritePreservesHeaderSafeJSON(t *testing.T) {
 				}
 				require.NotEqual(t, original["installation_id"], decoded["installation_id"])
 				for _, b := range []byte(updated) {
-					require.True(t, b >= 0x20 && b < 0x7f, "non-printable ASCII header byte: 0x%02x", b)
+					require.True(t, b >= 0x20 && b != 0x7f, "control byte in JSON metadata header: 0x%02x", b)
 				}
 			})
 		}

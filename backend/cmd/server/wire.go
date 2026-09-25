@@ -50,6 +50,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Privacy client factory for OpenAI training opt-out
 		providePrivacyClientFactory,
 
+		// Codex backend client factory (quota face; no browser impersonation)
+		provideCodexBackendClientFactory,
+
 		// BuildInfo provider
 		provideServiceBuildInfo,
 		providePluginHostInfo,
@@ -65,6 +68,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
 	return repository.CreatePrivacyReqClient
+}
+
+func provideCodexBackendClientFactory() service.CodexBackendClientFactory {
+	return repository.CreateCodexBackendReqClient
 }
 
 func provideServiceBuildInfo(buildInfo handler.BuildInfo) service.BuildInfo {
@@ -102,6 +109,7 @@ func provideCleanup(
 	claudeCodeVersionSync *service.ClaudeCodeVersionSyncService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
+	turnStateHunter *service.OpenAITurnStateHunterService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
 	batchImageCleanup *service.BatchImageCleanupService,
@@ -286,6 +294,10 @@ func provideCleanup(
 				subscriptionExpiry.Stop()
 				return nil
 			}},
+			{"OpenAITurnStateHunterService", func() error {
+				turnStateHunter.Stop()
+				return nil
+			}},
 			{"SubscriptionService", func() error {
 				if subscriptionService != nil {
 					subscriptionService.Stop()
@@ -335,6 +347,12 @@ func provideCleanup(
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {
 					openAIGateway.CloseOpenAIWSPool()
+				}
+				return nil
+			}},
+			{"OpenAICodexTicketHarvester", func() error {
+				if openAIGateway != nil {
+					openAIGateway.StopOpenAICodexTicketHarvester()
 				}
 				return nil
 			}},

@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamtiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -142,6 +145,11 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
 	baseURL := account.GetOpenAIBaseURL()
 	if baseURL == "" {
+		// 用 Type 而非 IsCPR()：理由同 GetOpenAIBaseURL 的 cpr 早退——平台错配的
+		// cpr 账号在 IsCPR() 下为 false，会静默回落到 api.openai.com。
+		if account.Type == AccountTypeCPR {
+			return "", errors.New("cpr account requires credentials.base_url")
+		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -182,15 +190,32 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
-	// DeepSeek thinking mode 要求历史 assistant 回传 reasoning_content。
-	// Responses→CC 回退在加密-only / 缺 reasoning item 且缓存未命中时会漏掉该
-	// 字段，上游 400 "The `reasoning_content` in the thinking mode must be
-	// passed back to the API"。在共用出站点补空格占位，真实明文不覆盖。
-	body = ensureDeepSeekChatReasoningPlaceholders(account, body)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var timing *upstreamtiming.Trace
+	if account.Platform == "deepseek" && os.Getenv("DEEPSEEK_UPSTREAM_TIMING") == "true" {
+		keyID := getAPIKeyIDFromContext(c)
+		accountID := account.ID
+		requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		bodyBytes := len(body)
+		attempt := c.GetInt("deepseek_timing_attempt") + 1
+		c.Set("deepseek_timing_attempt", attempt)
+		timing = upstreamtiming.New(func(snapshot upstreamtiming.Snapshot) {
+			logger.L().Info("deepseek.upstream_timing",
+				zap.String("request_id", requestID),
+				zap.String("client_request_id", clientRequestID), zap.Int("attempt", attempt),
+				zap.Int64("api_key_id", keyID), zap.Int64("account_id", accountID),
+				zap.Int("body_bytes", bodyBytes), zap.Any("timing", snapshot))
+		})
+		upstreamCtx = timing.Context(upstreamCtx)
+		c.Set("deepseek_upstream_timing", timing)
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	// 记录本次实际选择的协议端点，供错误日志和用量日志在没有
@@ -240,7 +265,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if timing != nil {
+		timing.Wrap(resp)
 	}
 	return resp, nil
 }
@@ -311,6 +342,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+			if value, ok := c.Get("deepseek_upstream_timing"); ok {
+				if timing, ok := value.(*upstreamtiming.Trace); ok {
+					timing.FirstSSE()
+				}
+			}
 		}
 		emit(&chunk)
 	}

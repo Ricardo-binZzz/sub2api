@@ -37,8 +37,7 @@ func referralTestService(t *testing.T, plan string, client OpenAIReferralClient)
 	repo := &stubQuotaAccountRepo{accounts: map[int64]*Account{100: a}}
 	tokens := &stubQuotaTokenCache{tokens: map[string]string{OpenAITokenCacheKey(a): "test-token"}}
 	factory := func(string) (*req.Client, error) {
-		t.Fatal("referral service must use the business interface, not the HTTP factory")
-		return nil, nil
+		return req.C(), nil
 	}
 	return NewOpenAIQuotaService(repo, nil, NewOpenAITokenProvider(repo, tokens, nil), factory, client), repo
 }

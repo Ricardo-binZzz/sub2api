@@ -205,7 +205,7 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Platform:           acc.Platform,
 			Type:               acc.Type,
 			Credentials:        acc.Credentials,
-			Extra:              acc.Extra,
+			Extra:              service.RedactOpenAICodexTicketExtra(acc.Extra),
 			ProxyKey:           proxyKey,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
@@ -693,7 +693,7 @@ func validateDataAccount(item DataAccount) error {
 		return errors.New("account credentials is required")
 	}
 	switch item.Type {
-	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream:
+	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream, service.AccountTypeCPR:
 	default:
 		return fmt.Errorf("account type is invalid: %s", item.Type)
 	}

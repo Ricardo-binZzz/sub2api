@@ -57,6 +57,10 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_5h_",
 	"codex_7d_",
 	"codex_reset_credit_",
+	// 292 门票是纯运行态凭据：它不在 filterSchedulerExtra 的投影白名单里，
+	// 因此 bucket 重建事件永远搬不动门票状态，续期时开事务+发 outbox 是白干。
+	// 归为观测型后仍会同步单账号快照（见 UpdateExtra），不丢任何新鲜度。
+	"codex_turn_ticket:",
 	"passive_usage_",
 	"upstream_billing_probe",
 	"upstream_billing_rate_sync",
@@ -69,6 +73,20 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_referral_snapshot":    {},
 	"grok_billing_snapshot":      {},
 	"session_window_utilization": {},
+	// turn-state 自动接管的候选池是运行态数据，上游每铸出一条健康 blob 就写一次，
+	// 不参与调度决策——不放进来的话每次响应都要重建一次调度快照。
+	"openai_turn_state_pool": {},
+	// 每个模型最近一次观测到的 turn-state 形态，所有 Codex 账号的响应路径上都会写
+	// （带节流），纯展示不参与调度。
+	"openai_turn_state_observed": {},
+	// CPR 侧的出站代理端点，跟着额度探测刷新，纯展示不参与调度。
+	"cpr_outbound_proxy": {},
+	// turn-state 猎手的运行态（下次窗口 / 本小时次数 / 最近 10 次），每次探测写一次，
+	// 纯展示不参与调度。配置键 openai_turn_state_hunter 由管理员写，不在此列。
+	"openai_turn_state_hunt": {},
+	// 降智恢复探测的运行态（连胜 / 下次窗口 / 已恢复时刻），每次探测写一次，纯展示不参与调度。
+	// 配置键 openai_turn_state_recovery 由管理员写，不在此列。
+	"openai_turn_state_recovery_state": {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -82,7 +100,7 @@ func codexFingerprintSeedValidSQL(extraExpr string) string {
 }
 
 func ensureCodexFingerprintSeedSQL(extraExpr string) string {
-	return "CASE WHEN platform = 'openai' AND type = 'oauth' THEN " +
+	return "CASE WHEN platform = 'openai' AND type IN ('oauth', 'setup_token') THEN " +
 		"jsonb_set(" + extraExpr + ", '{codex_fingerprint_seed}', " +
 		"CASE WHEN " + codexFingerprintSeedValidSQL("extra") +
 		" THEN to_jsonb(extra ->> 'codex_fingerprint_seed') ELSE to_jsonb(gen_random_uuid()::text) END, true) " +
@@ -671,6 +689,7 @@ func lockAndMergeAccountProbeExtra(
 			),
 			extra -> 'opencode_go_usage_auto_refresh',
 			extra -> 'opencode_go_usage_snapshot'
+			COALESCE(extra, '{}'::jsonb)
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -699,6 +718,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSnapshot          []byte
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
+		currentExtraJSON             []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -713,6 +733,7 @@ func lockAndMergeAccountProbeExtra(
 		&opencodeGroupIdentityUnchanged,
 		&currentOpenCodeAutoRefresh,
 		&currentOpenCodeSnapshot,
+		&currentExtraJSON,
 	); err != nil {
 		return nil, err
 	}
@@ -720,7 +741,20 @@ func lockAndMergeAccountProbeExtra(
 		return nil, err
 	}
 
-	extra := copyJSONMap(normalizeJSONMap(account.Extra))
+	// extra 理论上恒为 JSON 对象，但历史数据若存成非对象（数组/标量），在此硬失败
+	// 会让该账号的任何编辑都保存不了——而这条路径覆盖所有平台的账号更新。
+	// 门票是 1 小时 TTL 的临时凭据，下个打票周期会自动补回，因此解析失败时降级为
+	// 「无门票可保留」继续完成编辑，不要把整个账号更新拖垮。
+	var currentExtra map[string]any
+	if len(currentExtraJSON) > 0 {
+		if err := json.Unmarshal(currentExtraJSON, &currentExtra); err != nil {
+			logger.LegacyPrintf("repository.account",
+				"[Account] current extra unmarshal failed, codex ticket preservation skipped: id=%d err=%v",
+				account.ID, err)
+			currentExtra = nil
+		}
+	}
+	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -1396,7 +1430,8 @@ func (r *accountRepository) ListByPlatform(ctx context.Context, platform string)
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 		).
-		Order(dbent.Asc(dbaccount.FieldPriority)).
+		// 次级按 ID：同 priority 的行没有次级键时顺序随堆序漂移，猎手的跨 tick 游标靠不住。
+		Order(dbent.Asc(dbaccount.FieldPriority), dbent.Asc(dbaccount.FieldID)).
 		All(ctx)
 	if err != nil {
 		return nil, err

@@ -117,7 +117,7 @@ func TestIsOpenAILegacyCompactPath(t *testing.T) {
 		want bool
 	}{
 		{path: "/v1/responses/compact", want: true},
-		{path: "/v1/responses/compact/detail", want: true},
+		{path: "/v1/responses/compact/detail", want: false},
 		{path: "/responses/compact/", want: true},
 		{path: "/v1/responses", want: false},
 		{path: "/openai/v1/responses", want: false},

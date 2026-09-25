@@ -197,11 +197,6 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamKeepaliveInterval > 0 {
 		keepaliveInterval = time.Duration(s.settingService.cfg.Gateway.StreamKeepaliveInterval) * time.Second
 	}
-	// go-genai / python-genai 不会忽略 SSE 注释行，收到 ":\n\n" 会直接把整个流判成
-	// invalid stream chunk 而中断（Antigravity CLI 在用 go-genai）。对这类客户端宁可不发心跳。
-	if keepaliveInterval > 0 && downstreamRejectsSSEComments(c) {
-		keepaliveInterval = 0
-	}
 	var keepaliveTicker *time.Ticker
 	if keepaliveInterval > 0 {
 		keepaliveTicker = time.NewTicker(keepaliveInterval)
@@ -212,6 +207,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		keepaliveCh = keepaliveTicker.C
 	}
 	lastDataAt := time.Now()
+	rejectSSEComments := downstreamRejectsSSEComments(c)
 
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity gemini")
 
@@ -250,6 +246,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
 			trimmed := strings.TrimRight(line, "\r\n")
+			if rejectSSEComments && strings.HasPrefix(trimmed, ":") {
+				continue
+			}
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				if payload == "" || payload == "[DONE]" {
@@ -317,6 +316,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
+			if rejectSSEComments {
+				continue
+			}
 			if cw.Disconnected() {
 				continue
 			}

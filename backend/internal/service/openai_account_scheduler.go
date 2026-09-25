@@ -1457,7 +1457,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
-		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
 			filterStats.exclude("runtime_blocked")
 			continue
 		}
@@ -1779,8 +1779,18 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
 	}
-	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
 		return false, "runtime_blocked"
+	}
+	// 模型级限流（spark 429、降智暂停）也要在主过滤就排掉：否则停着的账号挤占 TopK 名额，
+	// 到 fresh/DB 复核才被拒，候选多于 TopK 时健康账号轮不到——与下面 quota auto-pause 同一个坑。
+	if req.RequestedModel != "" {
+		if limited, held := account.modelRateLimitStateForRequest(ctx, req.RequestedModel, time.Now()); limited {
+			if held {
+				return false, openAITurnStateHoldLimitReason
+			}
+			return false, "model_rate_limited"
+		}
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
@@ -2894,7 +2904,7 @@ func openAIUpstreamCostFactors(accounts []*Account, now time.Time, oauthScheduli
 			continue
 		}
 		factors[account.ID] = openAIUpstreamCostNeutralFactor
-		if !account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike() {
+		if !account.IsOpenAIApiKey() && !account.TargetsChatGPTCodexUpstream() {
 			continue
 		}
 		eligibleCount++
@@ -2958,7 +2968,7 @@ func newOpenAILegacyUpstreamRateOrder(accounts []*Account, now time.Time, oauthS
 		// 与 openAIUpstreamCostFactors 使用同一道平台门控：只有 OpenAI 平台账号
 		// 的倍率参与 legacy 低倍率优先排序。上游自报倍率来自中转方，不能让它对
 		// 其他平台的调度产生影响——否则自报低价即可吸走流量，而实际结算走本地倍率。
-		if !account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike() {
+		if !account.IsOpenAIApiKey() && !account.TargetsChatGPTCodexUpstream() {
 			continue
 		}
 		rate, ok := openAISchedulingRate(account, now, oauthSchedulingRateMultiplier)
@@ -2976,10 +2986,10 @@ func newOpenAILegacyUpstreamRateOrder(accounts []*Account, now time.Time, oauthS
 }
 
 func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMultiplier *float64) (float64, bool) {
-	if account == nil || (!account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike()) {
+	if account == nil || (!account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike() && !account.IsCPR()) {
 		return 0, false
 	}
-	if account.IsOpenAIOAuthLike() {
+	if account.IsOpenAIOAuthLike() || account.IsCPR() {
 		if rate := oauthSchedulingRateMultiplier; rate != nil && *rate >= 0 && !math.IsNaN(*rate) && !math.IsInf(*rate, 0) {
 			return *rate, true
 		}
