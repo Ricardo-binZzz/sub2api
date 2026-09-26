@@ -14,12 +14,23 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => appStoreMocks }))
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { turnStateFixture } from '@/components/account/__tests__/turnStateFixture'
 import { nextTick } from 'vue'
 
 import UsageTable from '../UsageTable.vue'
 
 const messages: Record<string, string> = {
+  'admin.usage.turnStateBlocks': 'blocks:{n}',
+  'admin.usage.turnStateSourceShort.manual': 'BADGE-MAN',
+  'admin.usage.turnStateSourceShort.auto': 'BADGE-AUTO',
+  'admin.usage.turnStateSourceShort.auto_stale': 'BADGE-AUTOSTALE',
+  'admin.usage.turnStateSourceLong.manual': 'long.manual',
+  'admin.usage.turnStateSourceLong.auto': 'long.auto',
+  'admin.usage.turnStateSourceLong.auto_stale': 'long.auto_stale',
   'admin.usage.userDeletedBadge': 'Deleted',
+  'admin.usage.turnStateOverriddenShort': 'OVR',
+  'admin.usage.turnStateOverridden': 'Override active',
+  'admin.usage.turnStateCopied': 'Turn-state copied',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
   'admin.usage.outputCost': 'Output Cost',
@@ -30,6 +41,7 @@ const messages: Record<string, string> = {
   'usage.perMillionTokens': '/ 1M tokens',
   'usage.serviceTier': 'Service tier',
   'usage.serviceTierPriority': 'Fast',
+  'usage.serviceTierUltrafast': 'Ultrafast',
   'usage.serviceTierFlex': 'Flex',
   'usage.serviceTierStandard': 'Standard',
   'usage.rate': 'Rate',
@@ -61,6 +73,7 @@ const messages: Record<string, string> = {
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
 	'admin.usage.requestIdCopied': 'Request ID copied',
+	'admin.usage.upstreamRequestIdCopied': 'Upstream ID copied',
 	'keys.copied': 'Copied',
 	'keys.copyToClipboard': 'Copy to clipboard',
 	'common.copyFailed': 'Copy failed',
@@ -76,7 +89,11 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, unknown>) => {
+        const raw = messages[key] ?? key
+        if (!params) return raw
+        return raw.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m))
+      },
     }),
   }
 })
@@ -87,11 +104,14 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-model" :row="row" :value="row.model" />
+        <slot name="cell-turn_state_sent" :row="row" :value="row.turn_state_sent" />
         <slot name="cell-reasoning_effort" :row="row" :value="row.reasoning_effort" />
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
+        <slot name="cell-upstream_request_id" :row="row" />
+        <slot name="cell-turn_state" :row="row" />
       </div>
     </div>
   `,
@@ -270,6 +290,53 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('$5.0000 / 1M tokens')
     expect(text).toContain('$30.0000 / 1M tokens')
     expect(text).toContain('$0.069568')
+  })
+
+  it.each(['token', 'image', 'per_request'])('keeps eight decimal places in %s cost details', async (billingMode) => {
+    const row = {
+      ...baseImageRow,
+      billing_mode: billingMode,
+      image_count: billingMode === 'image' ? 2 : 0,
+      input_cost: 0.00000001,
+      image_input_cost: 0.00000002,
+      output_cost: 0.00000003,
+      image_output_cost: 0.00000004,
+      cache_creation_cost: 0.00000005,
+      cache_read_cost: 0.00000006,
+      total_cost: 0.00000022,
+      actual_cost: 0.00000042,
+      account_stats_cost: 0.00000012,
+      account_rate_multiplier: 1.5,
+    }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const triggers = wrapper.findAll('.group.relative')
+    await triggers[triggers.length - 1].trigger('mouseenter')
+    const amounts = wrapper.get('.fixed').findAll('span').map(span => span.text())
+    expect(amounts).toEqual(expect.arrayContaining([
+      '$0.00000001', '$0.00000002', '$0.00000003', '$0.00000004',
+      '$0.00000005', '$0.00000006', '$0.00000022', '$0.00000042', '$0.00000018',
+    ]))
+    if (billingMode === 'image') expect(amounts).toContain('$0.00000011')
+    wrapper.unmount()
+  })
+
+  it('uses eight decimal places for missing cost values', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, billing_mode: 'per_request', image_count: 0, total_cost: undefined, actual_cost: undefined }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const triggers = wrapper.findAll('.group.relative')
+    await triggers[triggers.length - 1].trigger('mouseenter')
+    const amounts = wrapper.get('.fixed').findAll('span').map(span => span.text()).filter(text => text.startsWith('$'))
+    expect(amounts).toEqual(['$0.00000000', '$0.00000000', '$0.00000000', '$0.00000000'])
+    wrapper.unmount()
   })
 
   it('shows requested and upstream models separately for admin rows', () => {
@@ -586,6 +653,129 @@ describe('admin UsageTable request ID column', () => {
 
     expect(writeText).toHaveBeenCalledWith('req-admin-visible-id')
     expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('Request ID copied')
+  })
+
+  it('renders and copies the upstream ID', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, request_id: '', upstream_request_id: '20260903082826779695' }],
+        loading: false,
+        columns: [{ key: 'upstream_request_id', label: 'Upstream ID' }],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('20260903082826779695')
+    const copyButtons = wrapper.findAll('button[title="Copy to clipboard"]')
+    expect(copyButtons).toHaveLength(1)
+    await copyButtons[0].trigger('click')
+
+    expect(writeText).toHaveBeenCalledWith('20260903082826779695')
+    expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('Upstream ID copied')
+  })
+
+  // 判据是密文块数，不是字符长度。样本必须是真 Fernet 信封——假字符串首字节不是
+  // 0x80，decodeTurnState 会返回 null，就只测到了「退回字符长度」的兜底分支。
+  const mountTurnState = (row: Record<string, unknown>) =>
+    mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, request_id: '', upstream_request_id: '', ...row }],
+        loading: false,
+        columns: [{ key: 'turn_state', label: 'Turn-state' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+  it.each([
+    [10, 292, true],
+    [11, 312, false],
+  ])('badges a %i-block (%i-char) turn-state as green=%s', async (blocks, len, green) => {
+    const blob = turnStateFixture(1789651097, blocks)
+    expect(blob).toHaveLength(len)
+
+    const wrapper = mountTurnState({ turn_state: blob })
+    const badge = wrapper.findAll('span').find((n) => n.text() === String(len))
+    expect(badge, '徽标必须显示字符长度（292/312），块数只作判据').toBeTruthy()
+    expect(badge!.classes().some((c) => c.includes('green'))).toBe(green)
+    // 非健康必须是红色告警，不能退回中性灰——徽标语义就是「一眼看出降智」。
+    expect(badge!.classes().some((c) => c.includes('red'))).toBe(!green)
+    // 徽标文本现在只是字符长度，真信封与 'g'.repeat(292) 产出完全一样的文本和颜色。
+    // 这道断言是全套测试里唯一还依赖 decodeTurnState 返回值的闸：把它改成 return null
+    // 整套就会退回长度兜底而照样绿——这个仓库以前正是这么踩过的。
+    expect(badge!.attributes('title')).toContain('turnStateHint')
+  })
+
+  it('解不出信封时退回字符长度（老判据）', async () => {
+    const wrapper = mountTurnState({ turn_state: 'g'.repeat(292) })
+    const badge = wrapper.findAll('span').find((n) => n.text() === '292')
+    expect(badge).toBeTruthy()
+    expect(badge!.classes().some((c) => c.includes('green'))).toBe(true)
+    expect(badge!.attributes('title')).toContain('turnStateUndecodable')
+  })
+
+  it.each([
+    ['manual', 'BADGE-MAN'],
+    ['auto', 'BADGE-AUTO'],
+    ['auto_stale', 'BADGE-AUTOSTALE'],
+  ])('覆写来源 %s 渲染成本地化徽标而不是后端枚举', async (source, label) => {
+    // 来源徽标贴在出站列：它说的是出站那张票从哪来。贴在铸出列时「注入 292 后上游仍铸
+    // 312」会显示成「312 手填」，像是手填的就是 312。
+    const sent = turnStateFixture(1789651097, 10)
+    const minted = turnStateFixture(1789651098, 11)
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          request_id: '',
+          upstream_request_id: '',
+          turn_state: minted,
+          turn_state_sent: sent,
+          turn_state_overridden: true,
+          turn_state_source: source,
+        }],
+        loading: false,
+        columns: [{ key: 'turn_state', label: 'Turn-state' }, { key: 'turn_state_sent', label: 'Sent' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain(label)
+    expect(wrapper.text()).not.toContain(source)
+    const badge = wrapper.findAll('span').find((n) => n.text() === label)!
+    expect(badge.element.parentElement?.textContent).toContain(sent)
+    expect(badge.element.parentElement?.textContent).not.toContain(minted)
+  })
+
+  it('copies the turn-state with its own toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const blob = 'gAAAAAB-turn-state'
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, request_id: '', upstream_request_id: '', turn_state: blob }],
+        loading: false,
+        columns: [{ key: 'turn_state', label: 'Turn-state' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    const copyButtons = wrapper.findAll('button[title="Copy to clipboard"]')
+    expect(copyButtons).toHaveLength(1)
+    await copyButtons[0].trigger('click')
+
+    expect(writeText).toHaveBeenCalledWith(blob)
+    // 复用上游ID的文案会弹错提示，这里钉住专属文案
+    expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('Turn-state copied')
   })
 })
 

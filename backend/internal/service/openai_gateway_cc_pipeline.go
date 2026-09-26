@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamtiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -88,7 +91,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)
+	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody)
 	tempUnscheduled := false
 	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
 		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
@@ -112,6 +115,8 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		upstreamDetail = truncateString(string(respBody), maxBytes)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -140,6 +145,11 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
 	baseURL := account.GetOpenAIBaseURL()
 	if baseURL == "" {
+		// 用 Type 而非 IsCPR()：理由同 GetOpenAIBaseURL 的 cpr 早退——平台错配的
+		// cpr 账号在 IsCPR() 下为 false，会静默回落到 api.openai.com。
+		if account.Type == AccountTypeCPR {
+			return "", errors.New("cpr account requires credentials.base_url")
+		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -181,9 +191,31 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	grokCacheIdentity string,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var timing *upstreamtiming.Trace
+	if account.Platform == "deepseek" && os.Getenv("DEEPSEEK_UPSTREAM_TIMING") == "true" {
+		keyID := getAPIKeyIDFromContext(c)
+		accountID := account.ID
+		requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		bodyBytes := len(body)
+		attempt := c.GetInt("deepseek_timing_attempt") + 1
+		c.Set("deepseek_timing_attempt", attempt)
+		timing = upstreamtiming.New(func(snapshot upstreamtiming.Snapshot) {
+			logger.L().Info("deepseek.upstream_timing",
+				zap.String("request_id", requestID),
+				zap.String("client_request_id", clientRequestID), zap.Int("attempt", attempt),
+				zap.Int64("api_key_id", keyID), zap.Int64("account_id", accountID),
+				zap.Int("body_bytes", bodyBytes), zap.Any("timing", snapshot))
+		})
+		upstreamCtx = timing.Context(upstreamCtx)
+		c.Set("deepseek_upstream_timing", timing)
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	// 记录本次实际选择的协议端点，供错误日志和用量日志在没有
@@ -218,17 +250,28 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		}
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
 	}
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, upstreamReq.Header)
+
 	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
+	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 
 	proxyURL := ""
-	if account.Proxy != nil {
+	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if timing != nil {
+			timing.Finish(true)
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if timing != nil {
+		timing.Wrap(resp)
 	}
 	return resp, nil
 }
@@ -299,6 +342,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+			if value, ok := c.Get("deepseek_upstream_timing"); ok {
+				if timing, ok := value.(*upstreamtiming.Trace); ok {
+					timing.FirstSSE()
+				}
+			}
 		}
 		emit(&chunk)
 	}

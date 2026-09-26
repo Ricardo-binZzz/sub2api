@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
+	"unsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -41,6 +44,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 		}
 	case AccountTypeAPIKey:
 		baseURL := account.GetOpenAIBaseURL()
+		if account.UsesNativeCNResponses() && account.IsAdaptiveAPIProtocol() {
+			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
+		}
 		if baseURL == "" {
 			targetURL = openaiPlatformAPIURL
 		} else {
@@ -51,7 +57,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 			targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
 		}
 	default:
-		targetURL = openaiPlatformAPIURL
+		// 不再兜底到官方端点：未适配的账号类型（当前是 cpr）走到这里会把它的凭据
+		// 发往 api.openai.com。WSv2 对中继账号本版不支持，显式报错。
+		return "", fmt.Errorf("unsupported account type for openai websocket: %s", account.Type)
 	}
 
 	parsed, err := url.Parse(strings.TrimSpace(targetURL))
@@ -84,6 +92,11 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	routingModel string,
 	routingServiceTier string,
 ) (http.Header, openAIWSSessionHeaderResolution, error) {
+	if account != nil && account.Platform == PlatformOpenAI {
+		if _, err := resolveConfiguredProxyURL(ctx, nil, account.ProxyID, account.Proxy); err != nil {
+			return nil, openAIWSSessionHeaderResolution{}, err
+		}
+	}
 	headers := make(http.Header)
 	if account == nil || !account.IsOpenAIAgentIdentity() {
 		headers.Set("authorization", "Bearer "+token)
@@ -105,6 +118,13 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 			"session-id",
 			"thread-id",
 			"x-client-request-id",
+			// 真实 WS 握手同样条件性携带这两个头：前者来自
+			// build_responses_compatibility_headers（codex-rs core/src/client.rs:817），
+			// 后者由 build_websocket_headers 直接插入（同文件 :1262）。HTTP 两张白名单
+			// 已放行，WS 用的是这份独立拷贝列表，漏掉会让上游只在 WS 上看到一个
+			// 「从不做记忆整合、从不开计时」的客户端。
+			"x-openai-memgen-request",
+			"x-responsesapi-include-timing-metrics",
 		} {
 			if value := c.Request.Header.Get(name); strings.TrimSpace(value) != "" {
 				headers.Set(name, value)
@@ -116,6 +136,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 客户端未声明时补成默认形态，与 HTTP 出站保持一致。放在客户端头拷贝
 	// 之外：该头是账号/会话级属性，不依赖入站请求是否存在，也避免预热与
 	// 实际请求因头差异落进不同的连接池兼容分桶。
+	if account != nil && account.UsesOpenAICodexProtocol() {
+		headers.Del("x-codex-beta-features")
+	}
 	applyOpenAICodexBetaFeatures(c, account, headers)
 	// OAuth 账号：将 apiKeyID 混入 session 标识符，防止跨用户会话碰撞。
 	if account != nil && account.UsesOpenAICodexProtocol() {
@@ -142,6 +165,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	}
 	applyCodexAccountIdentityHeaders(headers, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
 	applyStagedCodexFingerprintHeaders(c, account, headers)
+	applyCodexFingerprintConvergenceHeaders(c, codexAccountIdentitySource(c, account), headers)
 
 	if account != nil && account.UsesOpenAICodexProtocol() {
 		if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, headers, account); err != nil {
@@ -180,6 +204,10 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 覆盖所有 WS 模式（ctx_pool/dedicated/passthrough）的握手头。
 	account.ApplyHeaderOverrides(headers)
 	setOpenAICodexRoutingHint(headers, account, routingModel, routingServiceTier)
+	applyCodexDeviceWireProfile(c, account, headers, true)
+	if err := s.applyOpenAICodexTicket(ctx, account, routingModel, headers); err != nil {
+		return nil, sessionResolution, err
+	}
 	logOpenAIRoutingDiagnostics(
 		ctx,
 		account,
@@ -214,29 +242,118 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 	return payload
 }
 
+// setOpenAIWSTurnMetadata fills missing frame metadata from the request headers.
+// A frame's own metadata includes its current turn/window, unlike a reused handshake.
 func setOpenAIWSTurnMetadata(payload map[string]any, turnMetadata string) {
+	setOpenAIWSClientMetadataIfMissing(payload, openAIWSTurnMetadataHeader, turnMetadata)
+}
+
+// codexWSStreamRequestStartKey：真客户端在发送前给每个 response.create 帧（含 generate=false
+// 的预热帧）盖时间戳（core/src/client.rs:1884 → :2103-2112 stamp_ws_stream_request_start_ms），
+// 值是 unix 毫秒的十进制字符串（client_metadata 是 HashMap<String,String>，common.rs:361）。
+// 语义是无条件覆盖（HashMap::insert）且在重试循环内（:1746 loop），每次 attempt 重新盖，
+// 注释也写明"发送到 socket 之前才盖，以捕获真实传输时延"（:2099-2101）。
+const codexWSStreamRequestStartKey = "x-codex-ws-stream-request-start-ms"
+
+// applyCodexWSFrameWireProfile 是双开账号 response.create 帧的收口，三条 WS 路径
+// （ctx_pool ingress / v2 / passthrough）与 v2 预热帧都在各自的发送边界调用：
+//  1. 客户端自己持有的 turn-state 放进 client_metadata——真客户端的位置（core/src/client.rs:
+//     1792-1793，OnceLock 有值才带），握手上不带（client.rs:1241）。帧自带的不覆盖，没有值不补；
+//     网关自己铸出/存储的值不进帧（真客户端拿不到那些值，见调用方 clientTurnState 注释）。
+//  2. 发送前无条件盖 x-codex-ws-stream-request-start-ms，与真客户端每次 attempt 重盖一致；
+//     转发客户端原帧时也重盖：那个戳记的是客户端到网关那一跳，出站这一跳的时刻才是上游读到的。
+//  3. 顶层字段按 ResponseCreateWsRequest 声明序（codex-api/src/common.rs:334-363）。
+//
+// client_metadata 存在但不是对象时不往里塞键（sjson 会把标量整个换成对象）。
+func applyCodexWSFrameWireProfile(c *gin.Context, account *Account, payload []byte, turnState string) []byte {
+	if !codexDeviceWireProfileEnabled(c, account) {
+		return payload
+	}
+	if eventType := gjson.GetBytes(payload, "type").String(); eventType != "" && eventType != "response.create" {
+		return payload
+	}
+	// 覆写是管理员的显式动作，要盖过真客户端自带的 blob。判据必须是「本次真的覆写了」
+	// 而不是「extra 里有手填值」：开了自动接管时手填值刻意保留在 extra 里但不生效
+	//（applyOpenAICodexTurnStateOverrideWSManualOnly），按配置判会把握手时那一个陈旧
+	// blob 强按进整条连接的每一帧。上游解析覆写时会把实际注入值写进上下文。
+	forcedTurnStateOverride := turnState != "" && turnState == openAITurnStateInjectedFromContext(c)
+	if meta := gjson.GetBytes(payload, "client_metadata"); !meta.Exists() || meta.IsObject() {
+		if turnState = strings.TrimSpace(turnState); turnState != "" {
+			existing := gjson.GetBytes(payload, "client_metadata."+openAICodexTurnStateHeader)
+			// 默认「缺失才补」：真客户端自带的 blob 不覆盖。
+			// 但账号级覆写是管理员的显式动作，必须盖过自带值——双开 WS 路径上握手头
+			// 已被 enforceCodexIdentityHeaders 删掉（turn-state 只走帧内），这里再让步
+			// 就等于「配了但静默失效」，而使用记录仍按配置记 overridden=true，
+			// 污染这个功能唯一要产出的诊断数据。
+			if forcedTurnStateOverride ||
+				existing.Type != gjson.String || strings.TrimSpace(existing.Str) == "" {
+				payload = setCodexWSClientMetadataString(payload, openAICodexTurnStateHeader, turnState)
+			}
+		}
+		payload = setCodexWSClientMetadataString(payload, codexWSStreamRequestStartKey,
+			strconv.FormatInt(time.Now().UnixMilli(), 10))
+	}
+	timezone := codexWireTimezoneName(account)
+	payload = rewriteCodexEnvironmentTimezoneWithName(timezone, payload)
+	// 与 HTTP 两条路径同一条规则：web_search 的 user_location 跟着出口走
+	// （openai_codex_wire_user_location.go）。
+	payload = rewriteCodexWebSearchUserLocationWith(account, timezone, payload)
+	return reorderCodexTopLevelFields(payload, codexWSCreateFieldOrder)
+}
+
+// setCodexWSClientMetadataString 写 client_metadata 的字符串键：值先用不转义 HTML 的编码器
+// 编好再 SetRaw——sjson 对含非 ASCII/引号/反斜杠的值会退回 encoding/json.Marshal（EscapeHTML
+// 默认开），而真客户端出线走 serde_json::to_string，不转义。
+func setCodexWSClientMetadataString(payload []byte, key, value string) []byte {
+	raw, err := marshalOpenAIUpstreamJSON(value)
+	if err != nil {
+		return payload
+	}
+	next, err := sjson.SetRawBytes(payload, "client_metadata."+key, raw)
+	if err != nil {
+		return payload
+	}
+	return next
+}
+
+// writeCodexWSFrame 是 ctx_pool ingress / v2 / 预热共用的帧写出：双开帧的字节原样上线
+// （不经 wsjson 的 json.Encoder，它会 HTML 转义并追加换行），其余账号维持既有 WriteJSON 编码。
+func writeCodexWSFrame(ctx context.Context, c *gin.Context, account *Account, lease *openAIWSConnLease, payload []byte, timeout time.Duration) error {
+	if codexDeviceWireProfileEnabled(c, account) {
+		return lease.WriteTextWithContextTimeout(ctx, payload, timeout)
+	}
+	return lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), timeout)
+}
+
+func setOpenAIWSClientMetadataIfMissing(payload map[string]any, key, value string) {
 	if len(payload) == 0 {
 		return
 	}
-	metadata := strings.TrimSpace(turnMetadata)
-	if metadata == "" {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return
 	}
 
 	switch existing := payload["client_metadata"].(type) {
 	case map[string]any:
-		existing[openAIWSTurnMetadataHeader] = metadata
+		if current, ok := existing[key].(string); ok && strings.TrimSpace(current) != "" {
+			return
+		}
+		existing[key] = value
 		payload["client_metadata"] = existing
 	case map[string]string:
+		if strings.TrimSpace(existing[key]) != "" {
+			return
+		}
 		next := make(map[string]any, len(existing)+1)
 		for k, v := range existing {
 			next[k] = v
 		}
-		next[openAIWSTurnMetadataHeader] = metadata
+		next[key] = value
 		payload["client_metadata"] = next
 	default:
 		payload["client_metadata"] = map[string]any{
-			openAIWSTurnMetadataHeader: metadata,
+			key: value,
 		}
 	}
 }
@@ -431,24 +548,37 @@ func alignStoreDisabledPreviousResponseID(
 	return updated, true, nil
 }
 
-func cloneOpenAIWSPayloadBytes(payload []byte) []byte {
-	if len(payload) == 0 {
-		return nil
+// Replay 状态所有权不变式：replay 序列中的 json.RawMessage 正文一经放入即视为
+// 不可变，所有持有者共享同一份字节，任何修改都必须整体替换元素或重建 payload。
+// 序列头数组在跨持有者保存时必须新建（combineOpenAIWSReplayItems），禁止通过
+// 共享头 append，否则会写入其他持有者可见的底层数组。
+
+// combineOpenAIWSReplayItems 合并历史与增量为新头数组，正文共享不复制。
+func combineOpenAIWSReplayItems(history, delta []json.RawMessage) []json.RawMessage {
+	if len(delta) == 0 {
+		return history
 	}
-	cloned := make([]byte, len(payload))
-	copy(cloned, payload)
-	return cloned
+	combined := make([]json.RawMessage, 0, len(history)+len(delta))
+	combined = append(combined, history...)
+	return append(combined, delta...)
 }
 
-func cloneOpenAIWSRawMessages(items []json.RawMessage) []json.RawMessage {
-	if items == nil {
-		return nil
+// openAIWSPayloadStringView 返回与 payload 共享底层数组的零拷贝 string 视图，
+// 供 gjson.Get 使用（gjson.GetBytes 会整段复制结果 Raw，对 input 这类占
+// payload 主体的字段是每次 O(payload) 分配）。调用方必须保证 payload 在结果
+// 存活期间不可变（replay 所有权不变式）。
+func openAIWSPayloadStringView(payload []byte) string {
+	return unsafe.String(unsafe.SliceData(payload), len(payload))
+}
+
+// openAIWSRawMessageFromResult 优先返回 parent 的子切片（gjson 值零拷贝共享），
+// Index 不可用时回退为复制。共享要求 parent 遵守上面的不可变约定。
+func openAIWSRawMessageFromResult(parent []byte, value gjson.Result) json.RawMessage {
+	idx := value.Index
+	if idx > 0 && idx+len(value.Raw) <= len(parent) && string(parent[idx:idx+len(value.Raw)]) == value.Raw {
+		return json.RawMessage(parent[idx : idx+len(value.Raw)])
 	}
-	cloned := make([]json.RawMessage, 0, len(items))
-	for idx := range items {
-		cloned = append(cloned, json.RawMessage(cloneOpenAIWSPayloadBytes(items[idx])))
-	}
-	return cloned
+	return json.RawMessage(value.Raw)
 }
 
 func normalizeOpenAIWSJSONForCompare(raw []byte) ([]byte, error) {
@@ -495,30 +625,38 @@ func normalizeOpenAIWSPayloadWithoutInputAndPreviousResponseID(payload []byte) (
 	return json.Marshal(decoded)
 }
 
+// openAIWSExtractNormalizedInputSequence 拆出 input 序列。返回的正文尽可能与
+// payload 共享底层数组（零拷贝），受 replay 所有权不变式保护。
 func openAIWSExtractNormalizedInputSequence(payload []byte) ([]json.RawMessage, bool, error) {
 	if len(payload) == 0 {
 		return nil, false, nil
 	}
-	inputValue := gjson.GetBytes(payload, "input")
+	inputValue := gjson.Get(openAIWSPayloadStringView(payload), "input")
 	if !inputValue.Exists() {
 		return nil, false, nil
 	}
 	if inputValue.Type == gjson.JSON {
-		raw := strings.TrimSpace(inputValue.Raw)
-		if strings.HasPrefix(raw, "[") {
-			var items []json.RawMessage
-			if err := json.Unmarshal([]byte(raw), &items); err != nil {
-				return nil, true, err
+		if inputValue.IsArray() {
+			// gjson 宽容解析；数组整体先做零分配合法性校验，避免把断裂
+			// JSON 塞进 replay 历史。
+			arrayRaw := openAIWSRawMessageFromResult(payload, inputValue)
+			if !json.Valid(arrayRaw) {
+				return nil, true, errors.New("input array json is invalid")
+			}
+			elems := inputValue.Array()
+			items := make([]json.RawMessage, 0, len(elems))
+			for _, elem := range elems {
+				items = append(items, openAIWSRawMessageFromResult(payload, elem))
 			}
 			return items, true, nil
 		}
-		return []json.RawMessage{json.RawMessage(raw)}, true, nil
+		return []json.RawMessage{openAIWSRawMessageFromResult(payload, inputValue)}, true, nil
 	}
 	if inputValue.Type == gjson.String {
 		encoded, _ := json.Marshal(inputValue.String())
 		return []json.RawMessage{encoded}, true, nil
 	}
-	return []json.RawMessage{json.RawMessage(inputValue.Raw)}, true, nil
+	return []json.RawMessage{openAIWSRawMessageFromResult(payload, inputValue)}, true, nil
 }
 
 func openAIWSInputIsPrefixExtended(previousPayload, currentPayload []byte) (bool, error) {
@@ -561,6 +699,10 @@ func openAIWSRawItemsHasPrefix(items []json.RawMessage, prefix []json.RawMessage
 		return false
 	}
 	for idx := range prefix {
+		// 快路径：客户端逐字节重发历史时直接比较，避免整轮历史的解码/再编码。
+		if bytes.Equal(bytes.TrimSpace(prefix[idx]), bytes.TrimSpace(items[idx])) {
+			continue
+		}
 		previousNormalized := normalizeOpenAIWSJSONForCompareOrRaw(prefix[idx])
 		currentNormalized := normalizeOpenAIWSJSONForCompareOrRaw(items[idx])
 		if !bytes.Equal(previousNormalized, currentNormalized) {
@@ -611,12 +753,13 @@ func openAIWSRawItemsHaveToolCallContextForOutputs(items []json.RawMessage) bool
 	return true
 }
 
+// sanitizeOpenAIWSHistoricalReplayToolCalls 返回的新头数组与 previousItems 共享正文。
 func sanitizeOpenAIWSHistoricalReplayToolCalls(
 	previousItems []json.RawMessage,
 	currentItems []json.RawMessage,
 ) []json.RawMessage {
 	if len(previousItems) == 0 {
-		return cloneOpenAIWSRawMessages(previousItems)
+		return previousItems
 	}
 	outputCallIDs := make(map[string]struct{})
 	collectOutputCallIDs := func(items []json.RawMessage) {
@@ -640,7 +783,7 @@ func sanitizeOpenAIWSHistoricalReplayToolCalls(
 				continue
 			}
 		}
-		sanitized = append(sanitized, append(json.RawMessage(nil), item...))
+		sanitized = append(sanitized, item)
 	}
 	return sanitized
 }
@@ -649,7 +792,7 @@ func openAIWSRawPayloadHasToolCallOutput(payload []byte) bool {
 	if len(payload) == 0 {
 		return false
 	}
-	input := gjson.GetBytes(payload, "input")
+	input := gjson.Get(openAIWSPayloadStringView(payload), "input")
 	if !input.Exists() {
 		return false
 	}
@@ -667,6 +810,33 @@ func openAIWSRawPayloadHasToolCallOutput(payload []byte) bool {
 	return false
 }
 
+// buildOpenAIWSReplayInputSequenceFromItems 基于已解析的当前 turn input 构建
+// replay 序列。返回序列的正文与 previousFullInput/currentItems 共享所有权
+// （见 combineOpenAIWSReplayItems 上方的所有权不变式），头数组可能直接转移自
+// currentItems。
+func buildOpenAIWSReplayInputSequenceFromItems(
+	previousFullInput []json.RawMessage,
+	previousFullInputExists bool,
+	currentItems []json.RawMessage,
+	currentExists bool,
+	hasPreviousResponseID bool,
+) ([]json.RawMessage, bool) {
+	if !hasPreviousResponseID || !previousFullInputExists {
+		return currentItems, currentExists
+	}
+	previousFullInput = sanitizeOpenAIWSHistoricalReplayToolCalls(previousFullInput, currentItems)
+	if !currentExists || len(currentItems) == 0 {
+		return previousFullInput, true
+	}
+	if openAIWSRawItemsHasPrefix(currentItems, previousFullInput) {
+		return currentItems, true
+	}
+	merged := make([]json.RawMessage, 0, len(previousFullInput)+len(currentItems))
+	merged = append(merged, previousFullInput...)
+	merged = append(merged, currentItems...)
+	return merged, true
+}
+
 func buildOpenAIWSReplayInputSequence(
 	previousFullInput []json.RawMessage,
 	previousFullInputExists bool,
@@ -677,23 +847,14 @@ func buildOpenAIWSReplayInputSequence(
 	if currentErr != nil {
 		return nil, false, currentErr
 	}
-	if !hasPreviousResponseID {
-		return cloneOpenAIWSRawMessages(currentItems), currentExists, nil
-	}
-	if !previousFullInputExists {
-		return cloneOpenAIWSRawMessages(currentItems), currentExists, nil
-	}
-	previousFullInput = sanitizeOpenAIWSHistoricalReplayToolCalls(previousFullInput, currentItems)
-	if !currentExists || len(currentItems) == 0 {
-		return cloneOpenAIWSRawMessages(previousFullInput), true, nil
-	}
-	if openAIWSRawItemsHasPrefix(currentItems, previousFullInput) {
-		return cloneOpenAIWSRawMessages(currentItems), true, nil
-	}
-	merged := make([]json.RawMessage, 0, len(previousFullInput)+len(currentItems))
-	merged = append(merged, cloneOpenAIWSRawMessages(previousFullInput)...)
-	merged = append(merged, cloneOpenAIWSRawMessages(currentItems)...)
-	return merged, true, nil
+	items, exists := buildOpenAIWSReplayInputSequenceFromItems(
+		previousFullInput,
+		previousFullInputExists,
+		currentItems,
+		currentExists,
+		hasPreviousResponseID,
+	)
+	return items, exists, nil
 }
 
 func setOpenAIWSPayloadInputSequence(

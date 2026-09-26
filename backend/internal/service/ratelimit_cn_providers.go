@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // 国产供应商（kimi/zhipu/deepseek）的响应式冷却辅助。
@@ -33,6 +35,33 @@ const cnConcurrencyLimitReasonPrefix = "cn_concurrency_limit"
 func isCNProviderConcurrencyLimit403(account *Account, upstreamMsg string) bool {
 	return account != nil && account.Platform == PlatformKimi &&
 		strings.TrimSpace(upstreamMsg) == kimiConcurrentRequestLimitMessage
+}
+
+const cnQuotaExhausted403ErrorType = "access_terminated_error"
+
+const cnQuotaExhaustedReasonPrefix = "cn_quota_exhausted"
+
+func isCNProviderQuotaExhausted403(account *Account, responseBody []byte, upstreamMsg string) bool {
+	if account == nil || !account.IsCNProvider() || !account.IsCodingPlan() {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	if strings.Contains(msg, "usage limit") || strings.Contains(msg, "quota will reset") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()), cnQuotaExhausted403ErrorType)
+}
+
+func (s *RateLimitService) handleCNProviderQuotaExhausted403(ctx context.Context, account *Account, upstreamMsg string) {
+	if s.cooldownCNProviderToQuotaSnapshotReset(ctx, account, cnQuotaExhaustedReasonPrefix, "cn_quota_exhausted_rate_limited") != nil {
+		return
+	}
+	reason := cnQuotaExhaustedReasonPrefix
+	if msg := strings.TrimSpace(upstreamMsg); msg != "" {
+		reason += ": " + msg
+	}
+	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
+	s.setCNProviderTempUnschedulable(ctx, account, until, cnQuotaExhaustedReasonPrefix, reason, "cn_quota_exhausted_temp_unschedulable")
 }
 
 func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
@@ -127,12 +156,19 @@ func (s *RateLimitService) cnBalanceCooldownDuration() time.Duration {
 // 周期额度探测刷新快照后阈值评估会再次停调到正确的时间点。
 // 无快照或均已过期返回 nil。
 func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
-	if account == nil || !account.IsCNProvider() || !account.IsCodingPlan() || len(account.Extra) == 0 {
+	if account == nil || len(account.Extra) == 0 {
+		return nil
+	}
+	if !account.IsOpenCodeGo() && (!account.IsCNProvider() || !account.IsCodingPlan()) {
 		return nil
 	}
 	provider := account.Platform
+	suffixes := []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset}
+	if account.IsOpenCodeGo() {
+		suffixes = append(suffixes, cnExtraSuffixMonthlyReset)
+	}
 	var earliest *time.Time
-	for _, suffix := range []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset} {
+	for _, suffix := range suffixes {
 		t := parseSchedulingResetAt(account.Extra[cnExtraKey(provider, suffix)])
 		if t == nil || !t.After(now) {
 			continue
@@ -144,6 +180,29 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 	return earliest
 }
 
+func (s *RateLimitService) cooldownCNProviderToQuotaSnapshotReset(ctx context.Context, account *Account, reason, logEvent string) *time.Time {
+	until := cnProviderQuotaSnapshotReset(account, time.Now())
+	if until == nil {
+		return nil
+	}
+	s.notifyAccountSchedulingBlocked(account, *until, reason)
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
+		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+		return nil
+	}
+	slog.Info(logEvent, "account_id", account.ID, "platform", account.Platform, "reset_at", until.UTC())
+	return until
+}
+
+func (s *RateLimitService) setCNProviderTempUnschedulable(ctx context.Context, account *Account, until time.Time, notifyReason, storeReason, logEvent string) {
+	s.notifyAccountSchedulingBlocked(account, until, notifyReason)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, storeReason); err != nil {
+		slog.Warn(notifyReason+"_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	slog.Info(logEvent, "account_id", account.ID, "platform", account.Platform, "until", until.UTC())
+}
+
 // applyCNProviderReactive429 处理国产供应商的 429 响应。
 // 返回 true 表示已处理（调用方应 return），false 表示未命中、继续走默认 429 逻辑。
 func (s *RateLimitService) applyCNProviderReactive429(
@@ -152,6 +211,36 @@ func (s *RateLimitService) applyCNProviderReactive429(
 	headers http.Header,
 	responseBody []byte,
 ) bool {
+	if account.IsOpenCodeGo() {
+		if until := cnProviderQuotaSnapshotReset(account, time.Now()); until != nil {
+			s.notifyAccountSchedulingBlocked(account, *until, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
+				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+				return true
+			}
+			slog.Info("opencode_go_rate_limited",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reset_at", *until,
+			)
+			return true
+		}
+		if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
+			resetTime := time.Unix(*resetAt, 0)
+			s.notifyAccountSchedulingBlocked(account, resetTime, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+				return true
+			}
+			slog.Info("opencode_go_rate_limited",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reset_at", resetTime,
+			)
+			return true
+		}
+		return false
+	}
 	if !account.IsCNProvider() {
 		return false
 	}

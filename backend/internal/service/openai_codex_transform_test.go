@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -475,6 +476,74 @@ func TestApplyCodexOAuthTransform_StringifiesNonStringMessageContentText(t *test
 	part, ok := content[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, `["a","b"]`, part["text"])
+}
+
+func TestApplyCodexOAuthTransform_PreservesAllowedTools(t *testing.T) {
+	for _, placement := range []string{"top_level", "additional_tools"} {
+		for _, mode := range []string{"auto", "required"} {
+			t.Run(placement+"/"+mode, func(t *testing.T) {
+				decision := map[string]any{"type": "function", "name": "ProbeAccept"}
+				choice := map[string]any{
+					"type": "allowed_tools", "mode": mode,
+					"tools": []any{map[string]any{"type": "function", "name": "ProbeAccept"}},
+				}
+				tools := []any{
+					map[string]any{"type": "function", "name": "ProbeBase"},
+					map[string]any{"type": "web_search"},
+					map[string]any{"type": "image_generation"},
+				}
+				input := []any{map[string]any{"type": "message", "role": "user", "content": "probe"}}
+				if placement == "top_level" {
+					tools = append(tools, decision)
+				} else {
+					input = append(input, map[string]any{
+						"type": "additional_tools", "role": "developer", "tools": []any{decision},
+					})
+				}
+				reqBody := map[string]any{"tools": tools, "input": input, "tool_choice": choice}
+				before, err := json.Marshal(reqBody)
+				require.NoError(t, err)
+				reqBody["model"] = "gpt-6-astra"
+				result := applyCodexOAuthTransform(reqBody, true, false)
+				require.NoError(t, result.Error)
+				after, err := json.Marshal(map[string]any{
+					"tools": reqBody["tools"], "input": reqBody["input"], "tool_choice": reqBody["tool_choice"],
+				})
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after))
+			})
+		}
+	}
+}
+
+func TestNormalizeCodexToolChoice_InvalidAllowedToolsNeverBecomesAuto(t *testing.T) {
+	for _, choice := range []map[string]any{
+		{"type": "allowed_tools"},
+		{"type": "allowed_tools", "mode": "invalid", "tools": []any{}},
+		{"type": "allowed_tools", "mode": "required", "tools": "invalid"},
+		{"type": "allowed_tools", "mode": "required", "tools": []any{map[string]any{"type": "function", "name": "missing"}}},
+	} {
+		reqBody := map[string]any{"tool_choice": choice}
+		require.False(t, normalizeCodexToolChoice(reqBody))
+		// The upstream owns schema validation. A malformed restriction must never
+		// silently become permission to call every supplied tool.
+		require.Equal(t, choice, reqBody["tool_choice"])
+	}
+}
+
+func TestApplyCodexOAuthTransform_AllowedToolsKeepsReservedNameReferences(t *testing.T) {
+	declaration := map[string]any{"type": "function", "name": "python"}
+	reference := map[string]any{"type": "function", "name": "python"}
+	choice := map[string]any{"type": "allowed_tools", "mode": "required", "tools": []any{reference}}
+	reqBody := map[string]any{
+		"model": "gpt-6-astra", "tools": []any{declaration}, "tool_choice": choice,
+	}
+	result := applyCodexOAuthTransform(reqBody, true, false)
+	require.NoError(t, result.Error)
+	require.Equal(t, choice, reqBody["tool_choice"])
+	require.Equal(t, codexPythonToolAlias, declaration["name"])
+	require.Equal(t, codexPythonToolAlias, reference["name"])
+	require.Equal(t, "python", result.ToolNameReverse[codexPythonToolAlias])
 }
 
 func TestApplyCodexOAuthTransform_DowngradesUnknownToolChoice(t *testing.T) {
@@ -1081,36 +1150,35 @@ func TestValidateCodexSparkInputAllowsTextOnly(t *testing.T) {
 	require.NoError(t, validateCodexSparkInput(reqBody, "gpt-5.3-codex-spark"))
 }
 
-func TestApplyCodexOAuthTransform_AddsSparkImageUnsupportedInstructions(t *testing.T) {
-	reqBody := map[string]any{
-		"model":        "gpt-5.3-codex-spark",
-		"instructions": "existing instructions",
-		"input":        "hello",
+// issue #6911：凡是会随请求发到上游的固定文本（instructions 标记、保留字工具别名）
+// 都不得含代理名。这条断言直接钉住意图，改名后忘了它就会红。
+func TestOutboundLiteralsCarryNoProxyName(t *testing.T) {
+	for name, value := range map[string]string{
+		"todo guard":          openAICompatClaudeCodeTodoGuardText,
+		"image bridge":        codexImageGenerationBridgeText,
+		"reserved tool alias": codexPythonToolAlias,
+	} {
+		require.NotContains(t, strings.ToLower(value), "sub2api", "%s 会随请求发给上游", name)
 	}
-
-	result := applyCodexOAuthTransform(reqBody, true, false)
-	require.True(t, result.Modified)
-
-	instructions, ok := reqBody["instructions"].(string)
-	require.True(t, ok)
-	require.Contains(t, instructions, "existing instructions")
-	require.Contains(t, instructions, codexSparkImageUnsupportedMarker)
-	require.Contains(t, instructions, "does not support image generation")
-	require.Contains(t, instructions, "switch to a non-Spark Codex model")
-	require.NotContains(t, instructions, codexImageGenerationBridgeMarker)
 }
 
-func TestApplyCodexOAuthTransform_DoesNotAddSparkImageUnsupportedForNonSpark(t *testing.T) {
-	reqBody := map[string]any{
-		"model":        "gpt-5.4",
-		"instructions": "existing instructions",
-		"input":        "hello",
+// issue #6911：不得往 instructions 注入任何带 sub2api 标记的文字（上游可据此识别代理）。
+// spark 只剥 image_generation 工具（stripCodexSparkImageGenerationTools），提示词原样。
+func TestApplyCodexOAuthTransform_SparkDoesNotInjectInstructions(t *testing.T) {
+	for _, model := range []string{"gpt-5.3-codex-spark", "gpt-5.4"} {
+		reqBody := map[string]any{
+			"model":        model,
+			"instructions": "existing instructions",
+			"input":        "hello",
+		}
+		applyCodexOAuthTransform(reqBody, true, false)
+		instructions, ok := reqBody["instructions"].(string)
+		require.True(t, ok)
+		require.Equal(t, "existing instructions", instructions, model)
+		raw, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "sub2api", model)
 	}
-
-	applyCodexOAuthTransform(reqBody, true, false)
-	instructions, ok := reqBody["instructions"].(string)
-	require.True(t, ok)
-	require.NotContains(t, instructions, codexSparkImageUnsupportedMarker)
 }
 
 // gpt-5.3-codex-spark rejects the image_generation tool upstream (HTTP 400
@@ -1361,6 +1429,10 @@ func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
 
 func TestNormalizeCodexModel_Gpt53(t *testing.T) {
 	cases := map[string]string{
+		"gpt-6-astra":               "gpt-6-astra",
+		"openai/gpt-6-astra":        "gpt-6-astra",
+		"gpt-6":                     "gpt-6-astra",
+		"openai/gpt-6":              "gpt-6-astra",
 		"gpt-5.4":                   "gpt-5.4",
 		"gpt5.5":                    "gpt-5.5",
 		"openai/gpt5.5":             "gpt-5.5",
@@ -1490,6 +1562,20 @@ func TestApplyCodexOAuthTransform_GPT55SuppliesModelSpecificInstructions(t *test
 	require.True(t, ok)
 	require.Contains(t, instructions, "You are Codex, a coding agent based on GPT-5")
 	require.NotContains(t, instructions, "You are GPT-5.1 running in the Codex CLI")
+	require.True(t, result.Modified)
+}
+
+func TestApplyCodexOAuthTransform_GPT6AstraSuppliesModelSpecificInstructions(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-6-astra",
+	}
+
+	result := applyCodexOAuthTransform(reqBody, true, false)
+
+	instructions, ok := reqBody["instructions"].(string)
+	require.True(t, ok)
+	require.True(t, strings.HasPrefix(strings.TrimSpace(instructions), "You are Codex, an agent based on GPT-6."))
+	require.NotContains(t, instructions, "You are Codex, a coding agent based on GPT-5.")
 	require.True(t, result.Modified)
 }
 

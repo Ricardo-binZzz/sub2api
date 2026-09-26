@@ -111,6 +111,7 @@ func isOpenAICompatPreviousResponseNotFound(statusCode int, upstreamMsg string, 
 	check := func(s string) bool {
 		lower := strings.ToLower(strings.TrimSpace(s))
 		return strings.Contains(lower, "previous_response_not_found") ||
+			lower == "previous_response_id is not available for this user" ||
 			(strings.Contains(lower, "previous response") && strings.Contains(lower, "not found")) ||
 			(strings.Contains(lower, "unsupported parameter") && strings.Contains(lower, "previous_response_id"))
 	}
@@ -132,7 +133,9 @@ func isOpenAICompatPreviousResponseUnsupported(statusCode int, upstreamMsg strin
 		}
 		return strings.Contains(lower, "unsupported parameter") ||
 			strings.Contains(lower, "only supported on responses websocket") ||
-			strings.Contains(lower, "not supported")
+			strings.Contains(lower, "not supported") ||
+			strings.Contains(lower, "is not available for this user") ||
+			strings.Contains(lower, "requires an openai api-key account for http requests")
 	}
 	if check(upstreamMsg) || check(string(upstreamBody)) {
 		return true
@@ -213,6 +216,10 @@ func (s *OpenAIGatewayService) bindOpenAICompatSessionResponseID(_ context.Conte
 		}
 	}
 	s.openaiCompatSessionResponses.Store(key, binding)
+	// The state was minted by the selected upstream account and is now eligible
+	// for the next compat bridge request. Record provenance for the shared
+	// outbound failover guard.
+	s.noteOpenAICodexTurnStateOrigin(c, account, binding.TurnState)
 }
 
 func (s *OpenAIGatewayService) deleteOpenAICompatSessionResponseID(_ context.Context, c *gin.Context, account *Account, promptCacheKey string) {

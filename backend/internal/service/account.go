@@ -252,6 +252,18 @@ func (a *Account) IsOAuth() bool {
 func (a *Account) IsPrivacySet() bool {
 	switch a.Platform {
 	case PlatformOpenAI:
+		// cpr 中继账号：本门对它不设防。OAuth 凭据在 codex-proxy-rs 手里，
+		// sub2api 既跑不了 EnsureOpenAIPrivacy / ForceOpenAIPrivacy 的探测
+		// （两者都要 access_token），CPR 的管理接口也不暴露训练共享设置
+		// （其源码无任何 privacy/training 处理），因此 extra.privacy_mode
+		// 对 cpr 恒为空。保持 false 的后果是 require_privacy_set 分组永远
+		// 选不出 cpr 账号，且只在 recheck 阶段丢号、报不带过滤原因的裸
+		// "no available accounts"（线上表现为 503）。
+		// 语义上这等于 require_privacy_set 对 cpr 失效：上游账号是否关闭训练
+		// 数据共享，由运维在 ChatGPT 侧自行保证，sub2api 无从验证。
+		if a.Type == AccountTypeCPR {
+			return true
+		}
 		return a.getExtraString("privacy_mode") == PrivacyModeTrainingOff
 	case PlatformAntigravity:
 		return a.getExtraString("privacy_mode") == AntigravityPrivacySet
@@ -285,17 +297,20 @@ func (a *Account) IsDeepseek() bool {
 	return a.Platform == PlatformDeepseek
 }
 
-// IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）。
+func (a *Account) IsMiniMax() bool {
+	return a.Platform == PlatformMiniMax
+}
+
+// IsCNProvider 报告是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax）。
 func (a *Account) IsCNProvider() bool {
 	return a != nil && IsCNProvider(a.Platform)
 }
 
 // IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
-// openai/grok 原生走 OpenAI 网关；kimi/zhipu/deepseek 同为 OpenAI Chat Completions
-// 兼容上游，也经 OpenAI 网关转发。
+// openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
+// 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok ||
-		a.Platform == PlatformKimi || a.Platform == PlatformZhipu || a.Platform == PlatformDeepseek)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -662,6 +677,16 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 				"gemini-3.6-flash-low",
 				"gemini-3.6-flash-medium",
 				"gemini-3.6-flash-tiered",
+				"gemini-3.7-flash",
+				"gemini-3.7-flash-high",
+				"gemini-3.7-flash-low",
+				"gemini-3.7-flash-medium",
+				"gemini-3.7-flash-tiered",
+				"gemini-3.8-flash",
+				"gemini-3.8-flash-high",
+				"gemini-3.8-flash-low",
+				"gemini-3.8-flash-medium",
+				"gemini-3.8-flash-tiered",
 			})
 			applyAntigravityGemini31ProAliases(result)
 		}
@@ -835,6 +860,10 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // 会把未知模型原样透传，Codex 上游对这类模型必然返回不可重试的 400，导致
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
+//
+// 例外：DeepSeek 平台的空映射不再是「允许所有」，改按官方模型白名单判定
+// （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
+// per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
@@ -845,8 +874,14 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
-		if a.IsOpenAIOAuth() {
+		// cpr 中继到同一个 Codex 后端，外厂模型同样会被不可重试的 400 拒掉，
+		// 必须在调度阶段就跳过，否则请求死在该账号上。setup-token 维持原状
+		// （从未参与这道黑名单），这里刻意不用 TargetsChatGPTCodexUpstream()。
+		if a.IsOpenAIOAuth() || a.IsCPR() {
 			return isOpenAIOAuthServableModel(requestedModel)
+		}
+		if a.Platform == PlatformDeepseek {
+			return isDeepseekServableModel(requestedModel)
 		}
 		return true // 无映射 = 允许所有
 	}
@@ -1305,11 +1340,53 @@ func (a *Account) UsesOpenAICodexProtocol() bool {
 	return a != nil && (a.Type == AccountTypeOAuth || a.IsOpenAIOAuthLike())
 }
 
+// TargetsChatGPTCodexUpstream 表示这个账号的请求最终会落到 ChatGPT 的 Codex
+// 后端：oauth / setup-token 直连，cpr 经 codex-proxy-rs 中继。
+//
+// CPR 不是逐字节透传：它会覆写 model（别名层）、删 max_output_tokens /
+// temperature、改写 environment_context 的时区文本与 web_search 的
+// user_location、注入 client_metadata.installation_id、强制 stream:true 并
+// zstd 压缩（providers/openai/src/transport/request.rs、client_sse.rs）。
+// 但它对 namespace / reasoning / input item id / service_tier / include
+// 只读不写，所以本层这几类归一化对 cpr 与 oauth 必须同样生效，且不会与
+// CPR 的改写叠加。
+//
+// 与 IsOpenAIOAuthLike() 的分工——后者表示「本地持有 ChatGPT OAuth 凭据」：
+//   - 按「上游是谁」分流（线协议归一化、429 语义、计费 tier、流终态判定、
+//     compact 归一化）用本函数
+//   - 按「本地有没有 token」分流（token 刷新、隐私探测、/wham/usage、指纹画像）
+//     用 IsOpenAIOAuthLike()
+//
+// 刻意不对齐的一块：UsesOpenAICodexProtocol()（applyCodexOAuthTransform 整套
+// body 变换）对 cpr 保持 false。那套变换会删 internal_chat_message_metadata_
+// passthrough，而 CPR 靠它定位 environment_context 做时区对齐；且 Codex CLI
+// 客户端本就自带 store:false / include。非 Codex 客户端打 cpr 的兼容性是已知缺口。
+func (a *Account) TargetsChatGPTCodexUpstream() bool {
+	return a.IsOpenAIOAuthLike() || a.IsCPR()
+}
+
 func (a *Account) IsOpenAIChatGPTSubscription() bool {
+	// cpr 的上游就是一份真实 ChatGPT 订阅。档位来源两级：凭据里人工写的
+	// plan_type 优先（管理端没有 cpr 的输入框，只能经 API/DB 写，属显式覆盖），
+	// 其次是 CPR admin 探测落在 extra.cpr_plan_type 的值——与列表页
+	// getAccountPlanType 的回退顺序一致。词表与 oauth 同源（CPR 从同一份
+	// OAuth 登录态取 plan，并把 unknown/空归一成缺省），所以沿用同一套
+	// fail-open 判定。setup-token 维持排除：它本就不参与订阅优先调度。
+	if a.IsCPR() {
+		plan := a.GetCredential("plan_type")
+		if strings.TrimSpace(plan) == "" {
+			plan = a.GetExtraString(CPRPlanTypeExtraKey)
+		}
+		return isOpenAIChatGPTSubscriptionPlan(plan)
+	}
 	if !a.IsOpenAIOAuth() {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(a.GetCredential("plan_type"))) {
+	return isOpenAIChatGPTSubscriptionPlan(a.GetCredential("plan_type"))
+}
+
+func isOpenAIChatGPTSubscriptionPlan(planType string) bool {
+	switch strings.ToLower(strings.TrimSpace(planType)) {
 	case "", "free", "abnormal":
 		return false
 	default:
@@ -1330,18 +1407,26 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 // GetOpenAIBaseURL 解析 OpenAI 协议族账号的上游 base_url。
-// 适用 openai 与国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）；grok 走 GetGrokBaseURL，
-// 此处对 grok 返回 "" 以保持原有行为。
+// 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
+// grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() {
 		return ""
 	}
-	if a.IsCNProvider() && a.IsAdaptiveAPIProtocol() {
+	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
 				return strings.TrimSpace(baseURL)
 			}
 		}
+	}
+	// CPR 中继绝不回落官方端点：本函数有二十多个调用点，只要有一个漏了适配，
+	// 回落就等于把 CPR 的 client key 当成 OpenAI API key 明文发给 api.openai.com。
+	// 返回空串让调用方报错，比返回一个能连通的错误目标安全得多。
+	// 这里刻意用 Type 而非 IsCPR()：IsCPR() 还要求 platform==openai，若真出现
+	// 平台错配的 cpr 账号，只看 Type 才能保证它同样拿不到任何回落地址。
+	if a.Type == AccountTypeCPR {
+		return strings.TrimSpace(a.GetCredential(cprCredentialBaseURL))
 	}
 	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
 		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
@@ -1362,6 +1447,10 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultZhipuPayGBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
+	case PlatformMiniMax:
+		return DefaultMiniMaxBaseURL
+	case PlatformOpenCodeGo:
+		return a.openCodeDefaultChatBaseURL()
 	default:
 		return "https://api.openai.com"
 	}
@@ -1387,10 +1476,10 @@ func (a *Account) IsCodingPlan() bool {
 
 // GetAPIProtocol 返回国产供应商账号的上游 API 协议。存储于
 // credentials["api_protocol"]；缺失或与平台不匹配时回退 chat_completions
-// （与既有行为完全一致）。responses 协议仅 deepseek 支持（官方原生 /responses
-// 端点，适配 Codex）；kimi/zhipu 无此端点。
+// （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
+// Responses 端点，适配 Codex）；zhipu 无此端点。
 func (a *Account) GetAPIProtocol() string {
-	if a == nil || !a.IsCNProvider() {
+	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
@@ -1399,13 +1488,45 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolAnthropic:
 		return APIProtocolAnthropic
 	case APIProtocolResponses:
-		if a.Platform == PlatformDeepseek {
+		if a.SupportsNativeCNResponses() {
 			return APIProtocolResponses
 		}
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
+	if a.IsOpenCodeGo() {
+		return APIProtocolAdaptive
+	}
 	return APIProtocolChatCompletions
+}
+
+// SupportsNativeCNResponses 报告该国产供应商是否提供原生 Responses 端点。
+// DeepSeek 官方为 /responses（无 /v1）；Kimi 按量付费与 Coding Plan 均为
+// /v1/responses（moonshot.cn / kimi.com/coding）；MiniMax 为 /v1/responses。
+func (a *Account) SupportsNativeCNResponses() bool {
+	if a == nil {
+		return false
+	}
+	switch a.Platform {
+	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo:
+		return true
+	default:
+		return false
+	}
+}
+
+// UsesNativeCNResponses 报告当前账号是否应按原生 Responses 协议转发
+// （显式 responses，或 adaptive 且平台具备原生端点）。
+func (a *Account) UsesNativeCNResponses() bool {
+	if a == nil || !a.SupportsNativeCNResponses() {
+		return false
+	}
+	switch a.GetAPIProtocol() {
+	case APIProtocolResponses, APIProtocolAdaptive:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsAdaptiveAPIProtocol 报告账号是否按入站协议动态选择供应商原生端点。
@@ -1417,7 +1538,7 @@ func (a *Account) IsAdaptiveAPIProtocol() bool {
 // adaptive 账号优先使用 api_base_urls 中的分协议地址，缺失时按平台和
 // account_mode 使用官方默认端点。base_url 继续作为 Chat Completions 地址兼容旧字段。
 func (a *Account) GetCNProtocolBaseURL(protocol string) string {
-	if a == nil || !a.IsCNProvider() {
+	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
 	if a.IsAdaptiveAPIProtocol() {
@@ -1448,6 +1569,10 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultZhipuAnthropicBaseURL
 		case PlatformDeepseek:
 			return DefaultDeepseekAnthropicBaseURL
+		case PlatformMiniMax:
+			return DefaultMiniMaxAnthropicBaseURL
+		case PlatformOpenCodeGo:
+			return a.openCodeDefaultAnthropicBaseURL()
 		}
 	case APIProtocolChatCompletions, APIProtocolResponses:
 		switch a.Platform {
@@ -1463,6 +1588,10 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultZhipuPayGBaseURL
 		case PlatformDeepseek:
 			return DefaultDeepseekBaseURL
+		case PlatformMiniMax:
+			return DefaultMiniMaxBaseURL
+		case PlatformOpenCodeGo:
+			return a.openCodeDefaultChatBaseURL()
 		}
 	}
 	return ""
@@ -1499,6 +1628,10 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return DefaultZhipuAnthropicBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekAnthropicBaseURL
+	case PlatformMiniMax:
+		return DefaultMiniMaxAnthropicBaseURL
+	case PlatformOpenCodeGo:
+		return a.openCodeDefaultAnthropicBaseURL()
 	default:
 		return ""
 	}
@@ -1526,6 +1659,10 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 		return DefaultZhipuPayGBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
+	case PlatformMiniMax:
+		return DefaultMiniMaxBaseURL
+	case PlatformOpenCodeGo:
+		return a.openCodeDefaultChatBaseURL()
 	default:
 		return a.GetOpenAIBaseURL()
 	}
@@ -1534,17 +1671,23 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 // GetCNAPIKey 返回国产 OpenAI 兼容供应商账号的 api_key 凭据（kimi/zhipu/deepseek）。
 // 与 openai 的 GetOpenAIApiKey 区分：后者仅对 openai 平台返回。
 func (a *Account) GetCNAPIKey() string {
-	if a == nil || !a.IsCNProvider() {
+	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
 	return a.GetCredential("api_key")
 }
 
-// GetCodingPlanProvider 根据 base_url 识别 Coding Plan 供应商（kimi / zhipu），
+// GetCodingPlanProvider 根据 base_url 识别 Coding Plan 供应商（kimi / zhipu / minimax），
 // 用于路由到对应的额度查询端点。非 coding 模式或无法识别时返回空串。
-// 判定规则与 cc-switch coding_plan.rs::detect_provider 保持一致。
+// 只认官方域名：自定义中转不得把第三方 Key 发往厂商官方额度端点。
 func (a *Account) GetCodingPlanProvider() string {
-	if a == nil || a.GetAccountMode() != AccountModeCoding {
+	if a == nil {
+		return ""
+	}
+	if a.IsOpenCodeGoPlan() {
+		return PlatformOpenCodeGo
+	}
+	if a.GetAccountMode() != AccountModeCoding {
 		return ""
 	}
 	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
@@ -1553,6 +1696,10 @@ func (a *Account) GetCodingPlanProvider() string {
 		return PlatformKimi
 	case strings.Contains(baseURL, "bigmodel.cn"), strings.Contains(baseURL, "api.z.ai"):
 		return PlatformZhipu
+	case strings.Contains(baseURL, "minimax.io"),
+		strings.Contains(baseURL, "minimaxi.com"),
+		strings.Contains(baseURL, "minimax.com"):
+		return PlatformMiniMax
 	default:
 		return ""
 	}
@@ -1669,14 +1816,15 @@ func (a *Account) GetOpenAIApiKey() string {
 }
 
 // GetOpenAIProtocolAPIKey 返回 OpenAI 协议族 APIKey 账号的密钥。
-// 覆盖 openai 原生账号与国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）账号，
-// 供转发鉴权、模型列表同步等协议族共用路径使用。注意 IsOpenAIApiKey 语义上
-// 仅指 openai 平台账号，调度倍率/WS 能力门控继续以其为准，不受本方法影响。
+// 覆盖 openai 原生账号、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）
+// 以及 OpenCode Go 账号，供转发鉴权、模型列表同步等协议族共用路径使用。
+// 注意 IsOpenAIApiKey 语义上仅指 openai 平台账号，调度倍率/WS 能力门控
+// 继续以其为准，不受本方法影响。
 func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsCNProvider() {
+	if a.IsMultiProtocolAPIKey() {
 		if a.Type != AccountTypeAPIKey {
 			return ""
 		}
@@ -1685,11 +1833,32 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	return a.GetOpenAIApiKey()
 }
 
+// codexAccountUserAgentExtraKey 账号级出站 User-Agent。放 extra 而不是 credentials：
+// 更新账号时后端整体替换 credentials，从前端提交该字段会有覆盖令牌的风险。
+const codexAccountUserAgentExtraKey = "codex_user_agent"
+
+// GetOpenAIUserAgent 返回账号级显式配置的出站 User-Agent：extra.codex_user_agent 优先，
+// 其次是历史的 credentials.user_agent；都没有时返回空串，由调用方回落到全局规范身份。
 func (a *Account) GetOpenAIUserAgent() string {
-	if !a.IsOpenAI() {
+	if a == nil || !a.IsOpenAI() {
 		return ""
 	}
+	if ua := a.getCodexUserAgentOverride(); ua != "" {
+		return ua
+	}
 	return a.GetCredential("user_agent")
+}
+
+// 额度面只跟随显式的新配置；共享校验，但不能因配置无效而跟随遗留凭据 UA。
+func (a *Account) getCodexUserAgentOverride() string {
+	if a == nil || !a.IsOpenAI() {
+		return ""
+	}
+	ua := strings.TrimSpace(a.GetExtraString(codexAccountUserAgentExtraKey))
+	if strings.ContainsFunc(ua, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return ""
+	}
+	return ua
 }
 
 func (a *Account) GetChatGPTAccountID() string {
@@ -1745,6 +1914,11 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if a == nil {
 		return false
 	}
+	if capability == OpenAIEndpointCapabilitySeedance {
+		configured, _ := a.openAIEndpointCapabilitySet()
+		return configured["seedance"] && a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(a.GetCredential("base_url")) != ""
+	}
 	if capability == "" {
 		return true
 	}
@@ -1789,7 +1963,8 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		// chatgpt.com/backend-api/codex/alpha/search，API key 走
 		// {base_url}/v1/alpha/search（见 openAIAlphaSearchURL），两类账号
 		// 都可承接独立搜索请求。上游不支持该端点时由转发层 failover 兜底。
-		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey {
+		// CPR 中继走 {base_url}/v1/alpha/search，形状与 API key 一路相同。
+		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey && a.Type != AccountTypeCPR {
 			return false
 		}
 	case OpenAIEndpointCapabilityEmbeddings:
@@ -1811,9 +1986,10 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 }
 
 // GrokMediaGenerationEligibility reports whether a Grok account may receive
-// new image/video generation requests. OAuth media fails closed unless billing
-// observations provide positive paid-entitlement evidence. An explicit
-// operator override takes precedence over probe data.
+// new image/video generation requests. Explicit evidence of a forbidden or
+// free account blocks media, while an incomplete successful billing response
+// remains eligible for backwards compatibility. An explicit operator
+// override takes precedence over probe data.
 func (a *Account) GrokMediaGenerationEligibility() (bool, string) {
 	if a == nil || !a.IsGrok() {
 		return false, "not_grok"
@@ -1839,7 +2015,12 @@ func (a *Account) GrokMediaGenerationEligibility() (bool, string) {
 		return false, "billing_free_tier"
 	}
 	if !grokBillingHasAuthoritativeQuota(billing) {
-		return false, "billing_inconclusive"
+		// Billing endpoints can return 200 with an account-specific schema that
+		// omits plan/quota fields (for example, some SuperGrok accounts). An
+		// incomplete observation is not proof of ineligibility; keep the account
+		// routable and expose the reason for diagnostics. Operators can still
+		// quarantine a known-bad account with grok_media_eligible=false.
+		return true, "billing_inconclusive"
 	}
 	return true, "eligible"
 }
@@ -1926,8 +2107,13 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 		return false
 	}
 	switch capability {
+	case OpenAIImagesCapabilityAPIKey:
+		return a.Type == AccountTypeAPIKey
 	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
-		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
+		// cpr 走 {base_url}/v1/images/*（CPR openai/router.rs 的 images 路由），
+		// 形状与 API key 一路完全相同。
+		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken ||
+			a.Type == AccountTypeAPIKey || a.Type == AccountTypeCPR
 	default:
 		return true
 	}
@@ -2004,6 +2190,11 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	if a == nil || !a.IsOpenAI() || a.Extra == nil {
 		return false
 	}
+	// CPR 中继本身就是透传层，sub2api 再套一层没有意义；而且这个开关在前端
+	// 对 cpr 账号可见可点、编辑页却不显示，开了就关不掉。直接在这里关死。
+	if a.IsCPR() {
+		return false
+	}
 	if enabled, ok := a.Extra["openai_passthrough"].(bool); ok {
 		return enabled
 	}
@@ -2028,6 +2219,11 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 // 2. 分类型字段缺失时，回退兼容字段
 func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
 	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	// cpr 走 CPR 网关的 HTTP /v1/responses，没有 WS 上行；与透传开关同样关死，
+	// 否则恢复备份或手改 extra 命中下面的历史键就会造出一个每请求必报错的废号。
+	if a.IsCPR() {
 		return false
 	}
 	if a.IsOpenAIOAuthLike() {

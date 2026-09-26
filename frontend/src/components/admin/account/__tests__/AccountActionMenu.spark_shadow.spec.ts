@@ -42,17 +42,51 @@ function makeAccount(overrides: Partial<Account>): Account {
   }
 }
 
-const position = { top: 100, left: 100 }
+const anchorRect = new DOMRect(100, 100, 24, 24)
 
 // AccountActionMenu uses <Teleport to="body">; content is rendered in document.body, not in wrapper.
 const getBodyText = () => document.body.textContent ?? ''
 const getBodyButtons = () => Array.from(document.body.querySelectorAll('button'))
 
+// 降智暂停（model_rate_limits.reason=turn_state_hold）不是限流：「恢复状态」清掉它也只是让下一条
+// 请求再停一次，不能因为它就亮出这个按钮。
+describe('AccountActionMenu — 降智暂停不算限流', () => {
+  const limited = (reason: string): Partial<Account> => ({
+    extra: {
+      model_rate_limits: {
+        'gpt-6-astra': {
+          rate_limited_at: new Date().toISOString(),
+          rate_limit_reset_at: new Date(Date.now() + 600_000).toISOString(),
+          reason
+        }
+      }
+    }
+  })
+
+  it('只有 turn_state_hold 条目时不显示「恢复状态」', () => {
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account: makeAccount(limited('turn_state_hold')), anchorRect },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).not.toContain('admin.accounts.recoverState')
+    wrapper.unmount()
+  })
+
+  it('真实的模型限流照常显示「恢复状态」', () => {
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account: makeAccount(limited('upstream_429')), anchorRect },
+      attachTo: document.body,
+    })
+    expect(getBodyText()).toContain('admin.accounts.recoverState')
+    wrapper.unmount()
+  })
+})
+
 describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('普通账号显示「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).toContain('admin.accounts.duplicateAccount')
@@ -62,7 +96,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('影子账号隐藏「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).not.toContain('admin.accounts.duplicateAccount')
@@ -72,7 +106,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it.each(['oauth', 'setup-token'] as const)('%s 账号隐藏「复制账号」按钮，避免共享可轮换令牌', (type) => {
     const account = makeAccount({ platform: 'openai', type, parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).not.toContain('admin.accounts.duplicateAccount')
@@ -82,7 +116,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('点击「复制账号」触发 duplicate 事件并携带 account', async () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
 
@@ -101,7 +135,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('OpenAI OAuth 母账号（无 parent_account_id）显示「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).toContain('admin.accounts.createSparkShadow')
@@ -111,7 +145,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('影子账号（parent_account_id 非 null）隐藏「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).not.toContain('admin.accounts.createSparkShadow')
@@ -121,7 +155,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('非 OpenAI 账号隐藏「创建 spark 影子」按钮', () => {
     const account = makeAccount({ platform: 'antigravity', type: 'oauth', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     expect(getBodyText()).not.toContain('admin.accounts.createSparkShadow')
@@ -131,7 +165,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('影子账号隐藏凭据/隐私类操作(重授权/刷新token/隐私)— 外审 G4', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: 42 })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     const body = getBodyText()
@@ -144,7 +178,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('普通 OpenAI OAuth 母账号仍显示凭据/隐私类操作', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
     const body = getBodyText()
@@ -156,7 +190,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
   it('点击按钮触发 create-spark-shadow 事件并携带 account', async () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
+      props: { show: true, account, anchorRect },
       attachTo: document.body,
     })
 

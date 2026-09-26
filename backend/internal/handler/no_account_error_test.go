@@ -76,6 +76,60 @@ func TestClassifySelectionFailureError_RateLimitedPool(t *testing.T) {
 	require.Equal(t, fallback, classifySelectionFailureError(fmt.Errorf("no available accounts"), fallback))
 }
 
+// 降智暂停不是限流：回 429 时 Codex 按限流硬重试且吞掉正文，客户端只剩
+// "exceeded retry limit, last status: 429"，真正的原因一个字都传不出去。
+//
+// 这里用一个**可区分**的 fallback（418）：真实 fallback 恰好也是 503 + api_error，
+// 拿它当基线的话，分支被整段删掉测试照样绿。
+func TestClassifySelectionFailureError_TurnStateHoldReports503(t *testing.T) {
+	fallback := noAccountErrorClassification{Status: http.StatusTeapot, ErrType: "teapot", Message: "fallback-sentinel"}
+
+	// 生产形状：Codex 走 OpenAI 调度，summary 由 openAISelectionFilterStats 产出。
+	got := classifySelectionFailureError(
+		fmt.Errorf("no available OpenAI accounts supporting model: gpt-6-astra (pool=1, filtered: turn_state_hold=1)"),
+		fallback,
+	)
+
+	require.Equal(t, http.StatusServiceUnavailable, got.Status)
+	require.Equal(t, "api_error", got.ErrType)
+	require.Contains(t, got.Message, "x-codex-turn-state")
+	require.Contains(t, got.Message, "hunter")
+
+	// 全池都被暂停（多个账号）：仍按暂停的口径。
+	whole := classifySelectionFailureError(
+		fmt.Errorf("no available OpenAI accounts supporting model: gpt-6-astra (pool=3, filtered: turn_state_hold=3)"),
+		fallback,
+	)
+	require.Equal(t, http.StatusServiceUnavailable, whole.Status)
+	require.Contains(t, whole.Message, "x-codex-turn-state")
+
+	// 1 个暂停 + 9 个真限流：说「都被暂停了」对 9 个账号是假话，维持 429。
+	mostlyRateLimited := classifySelectionFailureError(
+		fmt.Errorf("no available OpenAI accounts supporting model: gpt-6-astra (pool=10, filtered: model_rate_limited=9 turn_state_hold=1)"),
+		fallback,
+	)
+	require.Equal(t, http.StatusTooManyRequests, mostlyRateLimited.Status)
+	require.Equal(t, "rate_limit_error", mostlyRateLimited.ErrType)
+
+	// 判据必须是「暂停占满池子」而不是「暂停 >= 限流」：池子可以被十几个别的 reason 占满，
+	// 那时 1 个暂停照样满足 held >= rateLimited(0)，于是把「9 个号周额度打满」说成「猎手在补票」。
+	for _, other := range []string{"quota_auto_pause_7d", "runtime_blocked", "capability_mismatch", "model_not_supported"} {
+		got := classifySelectionFailureError(
+			fmt.Errorf("no available OpenAI accounts supporting model: gpt-6-astra (pool=10, filtered: %s=9 turn_state_hold=1)", other),
+			fallback,
+		)
+		require.Equal(t, fallback, got, "池子主要是 %s 时不能说成降智暂停", other)
+	}
+
+	// 没有 pool= 字段（GatewayService 那份 summary）时不冒认。
+	require.Equal(t, fallback, classifySelectionFailureError(
+		fmt.Errorf("no available accounts supporting model: x (total=1 eligible=0 turn_state_hold=1)"), fallback))
+
+	// 404 model_not_found 依然压过一切。
+	notFound := noAccountErrorClassification{Status: http.StatusNotFound, ErrType: "model_not_found", Message: "nope", ModelNotFound: true}
+	require.Equal(t, notFound, classifySelectionFailureError(fmt.Errorf("turn_state_hold=1"), notFound))
+}
+
 func TestClassifyNoAccountError_NilAPIKey_Falls503(t *testing.T) {
 	c := newTestGinContextWithRequest()
 	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
@@ -233,4 +287,73 @@ func TestClassifyNoAccountError_FromGin_NilContextStillSafe(t *testing.T) {
 	require.True(t, cls.ModelNotFound)
 	require.False(t, service.HasOpsClientBusinessLimited(nil))
 	require.Empty(t, service.OpsClientBusinessLimitedReason(nil))
+}
+
+// 权威的 404 model_not_found 不能被"账号被限流"的 429 盖掉。
+//
+// 选号失败的错误串同时携带多种过滤原因，例如
+// "pool=9, filtered: model_not_supported=8 model_rate_limited=1"：8 个账号根本不支持该模型，
+// 剩下 1 个恰好处于模型级冷却。此时 classifyNoAccountError 已通过持久化判据确认整个分组
+// 没有账号能服务该模型（ModelNotFound=true），改判成 429 "All available accounts are
+// currently rate-limited" 是错误诊断——重试永远不会成功，而把 429 当限流的客户端会反复
+// 重试并吞掉 body（Codex 只显示 "exceeded retry limit"），恰好丢掉唯一说明真实原因的信息。
+func TestClassifySelectionFailureError_ModelNotFoundIsNotOverriddenByRateLimited(t *testing.T) {
+	modelNotFound := noAccountErrorClassification{
+		Status:        http.StatusNotFound,
+		ErrType:       "model_not_found",
+		Message:       `Model "gpt-5.3-codex" is not supported by any configured account in this group`,
+		ModelNotFound: true,
+	}
+
+	got := classifySelectionFailureError(
+		fmt.Errorf("no available OpenAI accounts supporting model: gpt-5.3-codex "+
+			"(pool=9, filtered: model_not_supported=8 model_rate_limited=1)"),
+		modelNotFound,
+	)
+
+	require.Equal(t, modelNotFound, got,
+		"分组里没有任何账号能服务该模型时，模型级冷却不该把 404 改判成 429")
+}
+
+// 真实调用点的顺序：先 classifyNoAccountErrorFromGin，再 classifySelectionFailureError。
+// 覆盖这条链路是为了同时锁住 ops 归因——调用点用 ModelNotFound 决定是否标记
+// routing capacity limited，一旦 404 被改判成 429，同一个请求会既被标成
+// local model configuration 又被标成容量问题，自相矛盾。
+func TestClassifySelectionFailureError_CallSiteChainKeepsModelNotFoundAttribution(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+	apiKey := &service.APIKey{GroupID: ptrInt64(43)}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "gpt-5.3-codex", "gpt-5.3-codex", service.PlatformOpenAI)
+	cls = classifySelectionFailureError(
+		fmt.Errorf("no available OpenAI accounts supporting model: gpt-5.3-codex "+
+			"(pool=9, filtered: model_not_supported=8 model_rate_limited=1)"),
+		cls,
+	)
+
+	require.Equal(t, http.StatusNotFound, cls.Status)
+	require.Equal(t, "model_not_found", cls.ErrType)
+	require.True(t, cls.ModelNotFound)
+	require.Contains(t, cls.Message, "gpt-5.3-codex")
+	require.True(t, service.HasOpsClientBusinessLimited(c))
+	require.Equal(t, service.OpsClientBusinessLimitedReasonLocalModelConfiguration, service.OpsClientBusinessLimitedReason(c))
+}
+
+// 池子里确实存在能服务该模型、只是全部在冷却的账号时，429 改判仍需保留：
+// 这种情况 fallback 是 503（HasModelSupport=true），重试是有意义的。
+func TestClassifySelectionFailureError_StillUpgradesNonModelNotFoundFallback(t *testing.T) {
+	fallback := noAccountErrorClassification{
+		Status:  http.StatusServiceUnavailable,
+		ErrType: "api_error",
+		Message: "Service temporarily unavailable",
+	}
+
+	got := classifySelectionFailureError(
+		fmt.Errorf("no available accounts supporting model: gpt-5.6-sol (total=3 eligible=0 model_rate_limited=3)"),
+		fallback,
+	)
+
+	require.Equal(t, http.StatusTooManyRequests, got.Status)
+	require.Equal(t, "rate_limit_error", got.ErrType)
+	require.False(t, got.ModelNotFound)
 }

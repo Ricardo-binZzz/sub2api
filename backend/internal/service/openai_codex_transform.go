@@ -11,6 +11,9 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-sol":            "gpt-6-sol",
+	"gpt-6-luna":           "gpt-6-luna",
+	"gpt-6-astra":          "gpt-6-astra",
 	"gpt-5.6-sol":          "gpt-5.6-sol",
 	"gpt-5.6-terra":        "gpt-5.6-terra",
 	"gpt-5.6-luna":         "gpt-5.6-luna",
@@ -59,6 +62,8 @@ var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
+	{prefix: "gpt-6-luna", target: "gpt-6-luna"},
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
@@ -134,10 +139,10 @@ func trimOpenAIResponsesKnownCallIDPrefix(id string) string {
 const codexImageGenerationFunctionToolName = "image_gen.imagegen"
 
 const (
-	codexImageGenerationBridgeMarker = "<sub2api-codex-image-generation>"
-	codexImageGenerationBridgeText   = codexImageGenerationBridgeMarker + "\nWhen the user asks for raster image generation or editing, use the OpenAI Responses native `image_generation` tool attached to this request. The local Codex client may not expose an `image_gen` namespace, but that does not mean image generation is unavailable. Do not ask the user to switch to CLI fallback solely because `image_gen` is absent.\n</sub2api-codex-image-generation>"
-	codexSparkImageUnsupportedMarker = "<sub2api-codex-spark-image-unsupported>"
-	codexSparkImageUnsupportedText   = codexSparkImageUnsupportedMarker + "\nThe current model is gpt-5.3-codex-spark, which does not support image generation, image editing, image input, the `image_generation` tool, or Codex `image_gen`/`$imagegen` workflows. If the user asks for image generation or image editing, clearly explain this model limitation and ask them to switch to a non-Spark Codex model such as gpt-5.3-codex or gpt-5.4. Do not claim that the local environment merely lacks image_gen tooling, and do not suggest CLI fallback as the primary fix while the model remains Spark.\n</sub2api-codex-spark-image-unsupported>"
+	// issue #6911：同上，标记随 instructions 发往上游，不得含代理名。
+	codexImageGenerationBridgeMarker       = "<codex-image-generation>"
+	codexImageGenerationBridgeLegacyMarker = "<sub2api-codex-image-generation>"
+	codexImageGenerationBridgeText         = codexImageGenerationBridgeMarker + "\nWhen the user asks for raster image generation or editing, use the OpenAI Responses native `image_generation` tool attached to this request. The local Codex client may not expose an `image_gen` namespace, but that does not mean image generation is unavailable. Do not ask the user to switch to CLI fallback solely because `image_gen` is absent.\n</codex-image-generation>"
 )
 
 var openAIChatGPTInternalUnsupportedFields = []string{
@@ -297,9 +302,6 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 	if !opts.SkipDefaultInstructions && applyInstructions(reqBody, opts.IsCodexCLI) {
 		result.Modified = true
 	}
-	if isCodexSparkModel(normalizedModel) && applyCodexSparkImageUnsupportedInstructions(reqBody) {
-		result.Modified = true
-	}
 	// gpt-5.3-codex-spark rejects the image_generation tool upstream (HTTP 400,
 	// param=tools); Codex CLI advertises it by default, so strip it for spark.
 	if isCodexSparkModel(normalizedModel) && stripCodexSparkImageGenerationTools(reqBody) {
@@ -354,6 +356,12 @@ func normalizeCodexToolChoice(reqBody map[string]any) bool {
 	}
 	choiceType := strings.TrimSpace(firstNonEmptyString(choiceMap["type"]))
 	if choiceType == "" {
+		return false
+	}
+	if choiceType == "allowed_tools" {
+		// This is a selection policy, not a declared tool type. Preserve it for
+		// upstream validation (including references to input.additional_tools);
+		// falling back to auto would silently discard the caller's restriction.
 		return false
 	}
 	modified := false
@@ -1098,7 +1106,8 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool {
 	}
 
 	existing, _ := reqBody["instructions"].(string)
-	if strings.Contains(existing, codexImageGenerationBridgeMarker) {
+	if strings.Contains(existing, codexImageGenerationBridgeMarker) ||
+		strings.Contains(existing, codexImageGenerationBridgeLegacyMarker) {
 		return false
 	}
 
@@ -1109,23 +1118,6 @@ func applyCodexImageGenerationBridgeInstructions(reqBody map[string]any) bool {
 	}
 
 	reqBody["instructions"] = existing + "\n\n" + codexImageGenerationBridgeText
-	return true
-}
-
-func applyCodexSparkImageUnsupportedInstructions(reqBody map[string]any) bool {
-	if len(reqBody) == 0 {
-		return false
-	}
-	existing, _ := reqBody["instructions"].(string)
-	if strings.Contains(existing, codexSparkImageUnsupportedMarker) {
-		return false
-	}
-	existing = strings.TrimRight(existing, " \t\r\n")
-	if strings.TrimSpace(existing) == "" {
-		reqBody["instructions"] = codexSparkImageUnsupportedText
-		return true
-	}
-	reqBody["instructions"] = existing + "\n\n" + codexSparkImageUnsupportedText
 	return true
 }
 
@@ -1209,10 +1201,11 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 		reqBody["tool_choice"] = map[string]any{"type": "image_generation"}
 		modified = true
 	}
-	if imageModel != openAIImagesResponsesMainModel {
+	mainModel := openAIImagesResponsesMainModelValue()
+	if imageModel != mainModel {
 		modified = true
 	}
-	reqBody["model"] = openAIImagesResponsesMainModel
+	reqBody["model"] = mainModel
 	return modified
 }
 
@@ -1220,7 +1213,15 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.UsesOpenAICodexProtocol() {
 		return normalizeCodexModel(model)
 	}
-	return strings.TrimSpace(model)
+	model = strings.TrimSpace(model)
+	if account.Platform == PlatformDeepseek {
+		// DeepSeek 走 OpenAI 兼容入口，不经 Anthropic 入站的 [1m] 后缀归一
+		// （parseGatewayRequestCurrentBody 仅处理 PlatformAnthropic 协议）。
+		// 官方 Claude Code 接入要求 ANTHROPIC_MODEL=deepseek-flash[1m] 写法，
+		// 出站前剥离泄漏的客户端上下文后缀，转发规范名给上游。
+		return normalizeClaudeCodeLongContextModel(model)
+	}
+	return model
 }
 
 func SupportsVerbosity(model string) bool {
@@ -1391,8 +1392,7 @@ func extractPromptLikeInstructionsFromInput(reqBody map[string]any) string {
 
 // defaultCodexSynthInstructions 返回合成路径在 instructions 为空时应填入的默认提示词。
 //
-// 按 model 选择真实 Codex CLI 的 base instructions（codex 系→GPT-5-Codex，
-// gpt-5.2→GPT-5.2，gpt-5.1/gpt-5→GPT-5.1），使合成请求在提示词层面贴近真实 Codex 行为；
+// 按 model 选择真实 Codex CLI 的 base instructions，使合成请求在提示词层面贴近真实 Codex 行为；
 // 若内嵌 prompt 意外为空，回退到最小占位符以保证字段非空。
 func defaultCodexSynthInstructions(model string) string {
 	if instructions := strings.TrimSpace(openai.CodexBaseInstructionsForModel(model)); instructions != "" {
@@ -1429,17 +1429,19 @@ func ensureCodexReasoningInclude(reqBody map[string]any) bool {
 	}
 }
 
-// applyCodexClientMetadata 在请求体补齐 client_metadata["x-codex-installation-id"]，
-// 取值为账号真实的 openai_device_id（最新 Codex 在请求体携带的安装标识）。
-//
-// 加法式、幂等：仅在账号存在 device_id 且该键缺失时注入，绝不覆盖既有 client_metadata
-// （如 turn metadata），也不伪造——无 device_id 时不写入。
+// applyCodexClientMetadata 在请求体补齐 client_metadata["x-codex-installation-id"]。
+// openai_device_id 只能作为派生输入，绝不直接写入请求体；没有可用 seed 时
+// 交给统一 fingerprint 阶段处理，避免把 credential-side 原值暴露给上游。
 func applyCodexClientMetadata(reqBody map[string]any, account *Account) bool {
 	if account == nil {
 		return false
 	}
-	deviceID := strings.TrimSpace(account.GetOpenAIDeviceID())
-	if deviceID == "" {
+	seed, ok := codexFingerprintSeed(account.Extra)
+	if !ok {
+		return false
+	}
+	installationID := resolveConvergedInstallationID(account, seed)
+	if installationID == "" {
 		return false
 	}
 	const key = "x-codex-installation-id"
@@ -1448,7 +1450,7 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account) bool {
 		if v, ok := existing[key].(string); ok && strings.TrimSpace(v) != "" {
 			return false
 		}
-		existing[key] = deviceID
+		existing[key] = installationID
 		reqBody["client_metadata"] = existing
 		return true
 	case map[string]string:
@@ -1459,11 +1461,11 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account) bool {
 		for k, v := range existing {
 			next[k] = v
 		}
-		next[key] = deviceID
+		next[key] = installationID
 		reqBody["client_metadata"] = next
 		return true
 	case nil:
-		reqBody["client_metadata"] = map[string]any{key: deviceID}
+		reqBody["client_metadata"] = map[string]any{key: installationID}
 		return true
 	default:
 		return false

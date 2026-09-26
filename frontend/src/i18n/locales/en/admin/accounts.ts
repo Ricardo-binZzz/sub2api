@@ -107,6 +107,8 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        minimax: 'MiniMax',
+        opencode_go: 'OpenCode',
       },
       cnProviders: {
         accountMode: {
@@ -148,11 +150,54 @@ export default {
         balance: 'Balance --',
         window5h: '5h',
         windowWeekly: '7d',
+        windowMonthly: '30d',
         probe: 'Query',
         probeTooltip: 'Query the provider quota endpoint for 5-hour / weekly rolling window usage',
         balanceProbeTooltip: 'Query the provider balance endpoint for the account balance',
         balanceLow: 'Insufficient balance',
         noBalanceEndpoint: 'This platform has no balance query endpoint',
+      },
+      opencodeGo: {
+        accountMode: {
+          zen: 'Zen',
+          zenDesc: 'Pay-as-you-go gateway. Consumes account credits, billed per token.',
+          go: 'GO',
+          goDesc: 'Subscription gateway, rate-limited by 5-hour / weekly / monthly usage windows.',
+        },
+        protocolRules: {
+          title: 'Model protocol routing',
+          hint: 'In adaptive mode, each model is sent to a native upstream protocol. Use an exact ID or a trailing * glob (e.g. grok-*, qwen*). The first matching rule wins; unmatched models use Chat Completions.',
+          patternPlaceholder: 'grok-* or deepseek-v4-flash',
+          add: 'Add rule',
+          remove: 'Remove rule',
+          restoreDefaults: 'Restore defaults',
+          fallback: 'Unmatched models → Chat Completions (/v1/chat/completions)',
+        },
+        title: 'OpenCode Go usage',
+        panelHint: 'Usage windows reported by the upstream OpenCode Go account. Refreshed on demand or automatically when enabled.',
+        notRefreshed: 'Not refreshed',
+        refreshNow: 'Refresh usage',
+        autoRefresh: 'Automatic usage refresh',
+        autoRefreshHint: 'Runs only when the account switch and the global switch are both enabled.',
+        rolling: '5 hour',
+        rollingShort: '5h',
+        weekly: 'Week',
+        weeklyShort: '7d',
+        monthly: 'Month',
+        monthlyShort: '1m',
+        status: 'Status',
+        updatedAt: 'Updated',
+        ok: 'Current',
+        unauthorized: 'Session expired',
+        failed: 'Refresh failed',
+        windowWithReset: '{percent} used, resets {reset}',
+        loadFailed: 'Failed to load OpenCode Go usage settings',
+        autoRefreshFailed: 'Failed to update automatic usage refresh',
+        refreshSuccess: 'OpenCode Go usage refreshed',
+        refreshFailed: 'Failed to refresh OpenCode Go usage',
+        errors: {
+          OPENCODE_GO_USAGE_REFRESH_RATE_LIMITED: 'Refresh is limited. Try again in {retry_after_seconds} seconds.'
+        }
       },
       types: {
         oauth: 'OAuth',
@@ -197,7 +242,9 @@ export default {
         creditsExhaustedUntil: 'AI Credits exhausted, expected recovery at {time}',
         overloadedUntil: 'Overloaded until {time}',
         viewTempUnschedDetails: 'View temp unschedulable details',
-        tempUnschedulableUntil: 'Resumes {time}'
+        tempUnschedulableUntil: 'Resumes {time}',
+        turnStateHold: 'Degraded pause · {model} is paused on this account while the hunter looks for a ticket; resumes on a hit, re-pauses on the next request after expiry',
+        turnStateHoldShort: 'Degraded'
       },
       columns: {
         name: 'Name',
@@ -229,7 +276,7 @@ export default {
         ungrouped: 'Ungrouped',
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, billing rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
       },
-      usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
+      usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api. Purple/amber rows are the Codex turn-states currently in effect for this account (one per model); the countdown is the remainder of the one-hour validity from minting, and amber means the ticket looks degraded.',
       ollamaCloud: {
         title: 'Ollama Cloud usage',
         sessionSecurityHint: 'The browser session is encrypted at rest and sent only to the fixed official settings URL.',
@@ -343,8 +390,9 @@ export default {
           normal: 'RPM normal',
           tieredNormal: 'RPM limit (Tiered) - Normal',
           tieredWarning: 'RPM limit (Tiered) - Approaching limit',
-          tieredStickyOnly: 'RPM limit (Tiered) - Sticky only | Buffer: {buffer}',
-          tieredBlocked: 'RPM limit (Tiered) - Blocked | Buffer: {buffer}',
+          // A bare `|` is vue-i18n's plural separator: t() without a count renders only the first form. Use {'|'}.
+          tieredStickyOnly: "RPM limit (Tiered) - Sticky only {'|'} Buffer: {buffer}",
+          tieredBlocked: "RPM limit (Tiered) - Blocked {'|'} Buffer: {buffer}",
           stickyExemptNormal: 'RPM limit (Sticky Exempt) - Normal',
           stickyExemptWarning: 'RPM limit (Sticky Exempt) - Approaching limit',
           stickyExemptOver: 'RPM limit (Sticky Exempt) - Over limit, sticky only'
@@ -503,6 +551,9 @@ export default {
       recoverStateSuccess: 'Account state recovered successfully',
       recoverStateFailed: 'Failed to recover account state',
       fallbackActive: 'Fallback',
+      cprOutbound: 'CPR exit',
+      cprOutboundHint:
+        'The real exit is set on CPR: {endpoint}. The proxy above only covers the sub2api → CPR hop.',
       fallbackActiveTip: 'Origin proxy {origin} expired',
       revertProxy: 'Revert proxy',
       revertProxySuccess: 'Successfully reverted to original proxy',
@@ -559,6 +610,14 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      upstreamRequestIdHeader: 'Upstream ID',
+      upstreamRequestIdHeaderPlaceholder: 'Leave empty to record nothing',
+      upstreamRequestIdHeaderHelp: {
+        intro: 'Name of the response header in which the direct upstream declares its request ID. The value is recorded in the "Upstream ID" column of the usage log; leave empty to record nothing.',
+        examplesTitle: 'Common values',
+        sub2apiNote: 'Matches the request ID column of its usage log',
+        official: '{platform} official API'
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',
@@ -577,16 +636,19 @@ export default {
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
         wsMode: 'WS mode',
         wsModeDesc:
-          'Only applies to the current OpenAI account type; account WS modes, including http_bridge, take effect only when the global gateway.openai_ws.mode_router_v2_enabled=true.',
+          'Applies only to the current OpenAI account type. Select Off to disable WS. Other modes use the selected connection method only when gateway.openai_ws.mode_router_v2_enabled=true; otherwise, they use the context pool.',
         wsModeOff: 'Off (off)',
         wsModeCtxPool: 'Context Pool (ctx_pool)',
         wsModePassthrough: 'Passthrough (passthrough)',
         wsModeHttpBridge: 'HTTP Bridge (http_bridge)',
         wsModeShared: 'Shared (shared)',
         wsModeDedicated: 'Dedicated (dedicated)',
-        wsModeConcurrencyHint:
-          'When WS mode is enabled, account concurrency becomes the WS connection pool limit for this account.',
-        wsModePassthroughHint: 'Passthrough mode does not use the WS connection pool.',
+        wsModeCtxPoolHint:
+          'The gateway gets and reuses upstream WS connections from a pool, with the pool limit determined by gateway configuration.',
+        wsModePassthroughHint:
+          'The gateway opens a separate upstream WS connection for each client session, without using a connection pool.',
+        wsModeHttpBridgeHint:
+          'The gateway converts client WS requests to upstream HTTP requests, then converts SSE streaming responses back into WS messages.',
         oauthResponsesWebsocketsV2: 'OAuth WebSocket Mode',
         oauthResponsesWebsocketsV2Desc:
           'Only applies to OpenAI OAuth. This account can use OpenAI WebSocket Mode only when enabled.',
@@ -603,6 +665,9 @@ export default {
         responsesModeForceChatCompletions: 'Force Chat Completions',
         responsesModeTextDisabledHint:
           'Not applicable when the Responses / Chat Completions endpoint is not enabled.',
+        imagesUrlToB64Json: 'Image result URL to base64',
+        imagesUrlToB64JsonDesc:
+          'Only applies to non-streaming Images responses of OpenAI API Key accounts. When an upstream image item has a url but no b64_json, the gateway downloads the url and fills b64_json with its base64 content (url is kept) for clients built on the official API; the response is returned unchanged if the download fails.',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. The text endpoint follows the Responses API support setting above and is shown as Responses, Chat Completions, or auto mode; Embeddings independently controls /v1/embeddings.',
@@ -629,10 +694,25 @@ export default {
           "Effective only when the switch above is on. When enabled, this account also allows third-party clients that embed the Codex engine over the app-server protocol (e.g. Claude Code's codex plugin); they still pass the global engine-fingerprint gate. OR-combined with the global app-server toggle.",
         codexFingerprintMode: 'Codex fingerprint convergence',
         codexFingerprintModeDesc: 'When multiple users share the same OAuth account, converge device/session identifiers to account-level stable values to reduce upstream-visible device and session count. Off by default (client identifiers pass through as-is); opt in explicitly when needed. Some accounts reported quota shrinkage after enabling convergence, so choose based on your own measurements.',
+        codexFingerprintConvergence: 'Experimental fingerprint convergence (klno)',
+        codexFingerprintConvergenceDesc: "Make this account's outbound identity match a real Codex client on HTTP and WS: forward session-id / thread-id headers, x-client-request-id equals thread-id, drop session_id / conversation_id aliases, derive root_turn_id and related fields consistently, keep UUIDv7. Off means upstream behaviour; enabling rotates the account's session identifiers once.",
         codexFingerprintOff: 'Off (passthrough, default)',
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
+        codexUserAgent: 'Codex outbound User-Agent',
+        codexUserAgentDesc: 'Client identity this account reports upstream, shared by HTTP, the WS handshake and quota queries. '
+          + 'Leave empty to use the global setting. Keep it consistent with the real OS of this account\u0027s users: a Windows UA '
+          + 'paired with Linux paths and shell in the request body contradicts itself. The gateway rewrites the version segment '
+          + 'to the effective client version, so the value you type there does not matter.',
+        codexUserAgentPlaceholder: 'Leave empty to use the global setting',
+        codexTurnTicket: 'Codex 292 ticket',
+        codexTicketAccountEnabled: 'Enable 292 ticket harvesting',
+        codexTicketAccountEnabledDesc: 'When the global switch is on, harvest and inject tickets for this account only. Turn this off to keep its original forwarding path without ticket gating.',
+        codexTurnTicketDesc: 'Ticket status for the configured models. Requests are paused without a valid ticket only when fail-closed is enabled.',
+        codexTurnTicketMissing: 'No valid ticket; requests remain allowed',
+        codexTurnTicketReady: '{time} left',
+        codexTurnTicketPaused: 'No 292 ticket; this model is paused',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -648,6 +728,77 @@ export default {
         codexImageToolBadgeEnabled: 'Hosted bridge on',
         codexImageToolBadgeDisabled: 'No hosted injection',
         codexImageToolBadgeBlock: 'Client image tools stripped',
+        turnStateOverride: 'Turn-state override',
+        turnStateOverrideDesc: 'One ticket per model: a turn-state is bound to the model that minted it, so it no longer applies once the model changes. Pick a model, paste its blob, and every outbound request on that model carries it, overriding whatever the client echoed. Models with no ticket are left alone. Diagnostic use only.',
+        turnStateOverridePlaceholder: 'Paste a turn-state starting with gAAAAAB...',
+        turnStateOverrideLength: 'Length {n}',
+        turnStateOverrideValidUntil: 'About {minutes} min of validity left (expires {expires})',
+        turnStateOverrideExpired: 'Expired (minted {minted}) — it will not be injected, replace it',
+        turnStateAuto: 'Auto turn-state takeover',
+        turnStateAutoDesc:
+          'When enabled, the system takes over: once a session is seen at 312, the most recent valid 292 for this account and model is injected. If the upstream still mints 312 after injection, that candidate is marked failed and the next one is used; when every candidate for that model fails the account is disabled with the reason recorded. Candidates are bucketed per account and model (a turn-state does not carry across models) and are valid for 1 hour from minting — once expired nothing is injected and the system waits for a fresh 292. The manual value above stops taking effect. HTTP paths only — WebSocket passthrough is not covered.',
+        turnStateAutoTakeover: 'Managed automatically',
+        turnStateModelsEmpty: '(model list unavailable)',
+        turnStateOverrideConfigured: 'Models with a ticket: {models}',
+        turnStateHunter: '292 hunter',
+        turnStateHunterDesc:
+          'Shortly before the live ticket expires, open fresh sessions through the selected proxies until a 292 is minted, then pool it for automatic takeover. Probes hang up as soon as the response headers arrive; the main cost is the input tokens of each probe (including the model base prompt). While the hunter is on, every session gets the pooled ticket. Hourly cap applies; models without real traffic inside the idle window are not hunted. Every probe opens a new proxy connection, so webshare -rotate endpoints change exit per probe; other proxies are treated as fixed exits: the exit IP is resolved before probing, each exit is probed once, and an exit that minted 312 is left alone for 7 days.',
+        turnStateHunterNeedsAuto: 'Enable automatic takeover first, otherwise the hunter does not run',
+        turnStateHunterInvalid: 'With the hunter enabled, pick 1–8 models (or tick auto) and 1–64 proxies',
+        turnStateHunterAutoModels: 'Pick models from real traffic automatically (every model with real requests inside the idle window that upstream has minted a turn-state for is hunted; image models are excluded; manual picks above are ignored)',
+        turnStateHunterEffortDefault: 'default (high)',
+        turnStateHunterModels: 'Models to hunt',
+        turnStateHunterProxies: 'Probe proxies',
+        turnStateHunterRotating: 'Tick proxies that change exit on every connection (webshare -rotate is detected automatically); unticked ones are fixed exits: probed once per round, an exit that minted 312 cools down for 7 days',
+        turnStateHunterMaxPerHour: 'Max probes per hour',
+        turnStateHunterGap: 'Gap between probes (s)',
+        turnStateHunterLead: 'Open window before expiry (min)',
+        turnStateHunterIdle: 'Idle threshold (min, -1 = off)',
+        turnStateHunterEffort: 'Probe reasoning effort',
+        turnStateHunterUsageKey: 'Usage API key ID (blank = no usage log)',
+        turnStateHunterUsageKeyDesc:
+          'When set, every 200 probe is recorded under this key through the standard usage path (type "Hunter probe", billed normally, bumps last-used); input tokens are estimated locally (base prompt included), output is always 0. Use a dedicated key: probes consume its quota/rate limits, and subscription groups need an active subscription.',
+        turnStateHunterHold: 'Pause scheduling while degraded',
+        turnStateHunterHoldDesc:
+          'When a hunted model has no injectable 292, pause that model on this account for one idle window (idle_minutes) and fail the request over (503 if no other account); after expiry the next request re-pauses it if still no ticket, and a new ticket resumes it immediately. Other models are unaffected; a model nobody requests anymore simply expires.',
+        turnStateRecovery: 'Degradation recovery probe',
+        turnStateRecoveryDesc:
+          "Probes through the account's own exit at randomized intervals; a streak of healthy 292 mints marks the account as recovered, while the same number of consecutive failures starts a cooldown. Independent of the hunter (works with the hunter off), it only records a marker and a log line and never changes any setting. Probing stops once marked, and a natural 312 from real traffic clears the marker.",
+        turnStateRecoveryModel: 'Probe model',
+        turnStateRecoveryModelAuto: 'blank = latest model with traffic',
+        turnStateRecoveryStreak: 'Streak target',
+        turnStateRecoveryCooldown: 'Failure cooldown (hours)',
+        turnStateRecoveryMin: 'Min interval (minutes)',
+        turnStateRecoveryMax: 'Max interval (minutes)',
+        turnStatePool: {
+          empty: 'Turn-state —',
+          starved: 'Turn-state: no ticket, passing through',
+          manualTag: 'manual',
+          observedTag: 'last minted',
+          summary: '{n} model(s) with a live turn-state',
+          summaryObservedOnly: 'no live ticket, {n} reading(s) only',
+          detail: '{model}: {shape} {health}, minted {minted}, expires {expires}',
+          healthy: 'full',
+          suspect: 'suspect',
+          hunterSummary: 'hunter {count}/{max} this hour · {next} · {last}',
+          hunterNext: 'next {time}',
+          hunterReady: 'ready',
+          hunterProbing: 'probing',
+          recoverySummary: 'recovery {streak}/{target} · {next}',
+          recoveryCooling: 'cooling until {time}',
+          recoveryDone: 'recovered · {time}',
+          hunterGateIdle: 'paused: no traffic',
+          hunterGateHeld: 'degraded pause: hunting a ticket',
+          hunterGateFresh: 'ticket still fresh',
+          hunterNeedsAuto: 'hunter inactive: enable automatic takeover first',
+          // A bare `@` is vue-i18n's linked-message prefix and throws in production builds; use {'@'}.
+          hunterLast: "last {result} {'@'}{proxy} {time}",
+          hunterLastNone: 'no probe yet',
+          hunterResultHit: '{chars}✓',
+          hunterResultMiss: '{chars}',
+          hunterResultError: 'error {status} {error}',
+          hunterDetail: "{time} {model} {'@'}{proxy}{exit}: {result}, headers in {latency}",
+        },
         compactMode: 'Compact mode',
         compactModeDesc:
           'Controls how this account participates in /responses/compact routing. Auto follows probe results, Force On always allows, Force Off always excludes.',
@@ -737,6 +888,8 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      fromModel: 'Request model',
+      toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
@@ -759,7 +912,9 @@ export default {
       syncUpstreamModelsFailed: 'Failed to sync upstream models',
       syncUpstreamModelsError: 'Failed to sync upstream models: {message}',
       syncUpstreamModelsMetadataIncomplete:
-        'Model IDs were synced, but capability metadata is incomplete and was not updated.',
+        'Model IDs were synced, but no capability metadata could be updated.',
+      syncUpstreamModelsMetadataPartial:
+        'Some model capabilities were updated; remaining models are still incomplete.',
       clearAllModels: 'Clear all models',
       customModelName: 'Custom model name',
       enterCustomModelName: 'Enter custom model name',
@@ -809,7 +964,7 @@ export default {
         bulkDisableHint: 'Saving will disable header override and clear existing configuration on the selected accounts.',
         bulkReplaceHint: 'Saving will replace the existing header override configuration on all selected accounts with the rows below.',
         bulkEmptyRows: 'Add at least one header row before saving, or turn the toggle off to clear existing configuration.',
-        invalidName: 'Invalid header name (only letters, digits and !#$%&\'*+-.^_`|~ are allowed)',
+        invalidName: "Invalid header name (only letters, digits and !#$%&'*+-.^_`{'|'}~ are allowed)",
         blockedName: 'This header cannot be overridden (auth and connection-control headers are managed by the system)',
         duplicateName: 'Duplicate header name (matching is case-insensitive)',
         invalidValue: 'Invalid header value (control characters are not allowed; max length 8192)',
@@ -829,6 +984,30 @@ export default {
       grokClientToolCache: {
         title: 'Client Tool Cache (May Change Automatic Tool Selection)',
         hint: 'For detected Grok Free OAuth accounts, this is enabled by default for client function tools such as Codex and Trae. Turn it off to opt out if the automatic tool-selection behavior is not acceptable.'
+      },
+      grokMediaEligibility: {
+        title: 'Media Generation Eligibility',
+        hint: 'Controls whether this Grok OAuth account may be selected for image and video generation.',
+        auto: 'Automatic detection',
+        enabled: 'Force enable',
+        disabled: 'Force disable',
+        current: 'Current decision:',
+        eligible: 'Eligible',
+        ineligible: 'Not eligible',
+        loading: 'Loading eligibility…',
+        loadFailed: 'Unable to load media eligibility',
+        autoHint: 'Automatic detection only clears the manual override; it does not trigger a media request.',
+        forceEnableWarning: 'Force enable bypasses automatic eligibility checks. Use only for accounts confirmed to support image/video generation.',
+        partialSave: 'Other account settings may have been saved, but media eligibility was not updated. Please retry.',
+        reasons: {
+          eligible: 'Paid entitlement confirmed',
+          billing_inconclusive: 'Billing information inconclusive',
+          billing_forbidden: 'Billing endpoint forbidden',
+          billing_free_tier: 'Free tier account',
+          billing_unobserved: 'Billing not observed yet',
+          override_enabled: 'Manually forced enabled',
+          override_disabled: 'Manually forced disabled'
+        }
       },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
@@ -994,6 +1173,24 @@ export default {
         apiKeyHint: 'API Key for the upstream service',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key'
+      },
+      // CPR (codex-proxy-rs) relay
+      cpr: {
+        typeHint: 'codex-proxy-rs relay',
+        baseUrl: 'CPR Gateway URL',
+        baseUrlHint: 'Where codex-proxy-rs listens, e.g. http://127.0.0.1:18081. Required; it never falls back to the official endpoint.',
+        clientKey: 'CPR Client Key',
+        clientKeyHint: 'A key created under "Client Keys" in CPR. It should be bound to a single group containing exactly one CPR account.',
+        accountId: 'CPR Account ID',
+        accountIdHint: 'The account id in CPR (looks like acct_xxx), used to read quota.',
+        adminApiKey: 'CPR Admin API Key',
+        adminApiKeyHint: "CPR's admin API key (starts with admin-), used only to read quota and account status.",
+        adminBaseUrl: 'CPR Admin URL (optional)',
+        adminBaseUrlHint: 'Defaults to the gateway URL when left empty.',
+        baseUrlRequired: 'Please enter the CPR gateway URL',
+        clientKeyRequired: 'Please enter the CPR client key',
+        accountIdRequired: 'Please enter the CPR account ID',
+        adminApiKeyRequired: 'Please enter the CPR admin API key'
       },
       // OAuth flow
       oauth: {
@@ -1519,15 +1716,48 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        estimatedTotalCost: 'Est. total ${cost}',
+        estimatedTotalCostTooltip: 'Estimated total cost at 100% utilization, based on current window cost and utilization'
+      },
+      openaiReferral: {
+        available: 'Invites left',
+        invite: 'Invite user',
+        fromAccount: 'Inviting account:',
+        personal: 'Invite a friend',
+        workspace: 'Invite a coworker',
+        email: 'Recipient email',
+        consent: 'I have this person’s consent to send them an invitation.',
+        send: 'Send invitation',
+        sending: 'Sending…',
+        sent: 'Invitation sent to {email}',
+        queryHint: 'Click to query remaining invitations',
+        checkedAt: 'Checked: {time}. Click to refresh.',
+        unavailable: 'Invitations are unavailable. Eligibility requirements may not be met, or the limit has been reached.',
+        invalidEmail: 'Enter one valid email address.',
+        rejected: 'The invitation was rejected. Check the email and offer eligibility.',
+        alreadyInvited: 'An invitation already exists for this email. Check its status in Codex.',
+        rateLimited: 'The invitation rate or capacity limit has been reached. Try again later.',
+        sendUnknown: 'The invitation outcome is unknown. Check its status in Codex before deciding whether to retry.',
+        programChanged: 'The account’s referral program changed. Refresh eligibility before sending.',
+        consentRequired: 'Confirm that you have the recipient’s consent first.',
+        shadowHint: 'Send invitations from the parent account.',
+        cacheFailed: 'Live capacity was fetched, but the cache could not be saved. Query again.',
+        refreshFailed: 'The invitation was sent, but remaining capacity could not be refreshed. Query again.'
       },
       openaiQuotaReset: {
-        count: 'Credits',
+        count: 'Resets',
+        points: 'Points',
+        pointsUnlimited: 'Unlimited',
+        pointsAvailable: 'Available',
+        pointsTooltip: 'Click to query Codex points and reset credits',
+        pointsUpdatedAt: 'Balance checked: {time}',
+        pointsCachePersistFailed: 'Showing live points, but the cache could not be saved. Query again.',
         reset: 'Reset',
-        countTooltipLoad: 'Click to load the available reset-credit count',
-        countTooltipRefresh: 'Click to refresh the available reset-credit count',
+        countTooltipLoad: 'Click to load the available reset-credit count and points balance',
+        countTooltipRefresh: 'Click to refresh the available reset-credit count and points balance',
         resetTooltipReady: 'Consume 1 reset credit to immediately restore the window',
-        resetTooltipNeedQuery: 'Click Credits first to load the available count',
+        resetTooltipNeedQuery: 'Click Resets first to load the available count',
         resetTooltipNoCredits: 'No reset credits available',
         resetTooltipShadow: 'Spark shadow accounts cannot reset credits; reset on the parent account',
         expiresAt: 'Expires {time}',

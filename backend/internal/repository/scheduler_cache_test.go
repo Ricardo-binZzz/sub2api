@@ -37,6 +37,20 @@ func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 	require.Empty(t, metadata.GetCredential("access_token"))
 }
 
+func TestSchedulerMetadataAccountKeepsCPRPlanType(t *testing.T) {
+	account := service.Account{
+		ID:       25,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeCPR,
+		Extra:    map[string]any{service.CPRPlanTypeExtraKey: "pro"},
+	}
+
+	metadata := buildSchedulerMetadataAccount(account)
+
+	require.True(t, metadata.IsOpenAIChatGPTSubscription(),
+		"cpr 的档位在 extra 里，投影裁掉它订阅优先调度就只在 DB 回退那一次生效")
+}
+
 func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	lastError := strings.Repeat("upstream diagnostic ", 512)
 	probe := map[string]any{
@@ -93,6 +107,20 @@ func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	require.Contains(t, string(fullPayload), lastError)
 	require.NotContains(t, string(metaPayload), "last_error")
 	require.Less(t, len(metaPayload)*4, len(fullPayload))
+}
+
+func TestSchedulerMetadataAccountKeepsCodexTicketPolicy(t *testing.T) {
+	metadata := buildSchedulerMetadataAccount(service.Account{
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+		Extra: map[string]any{
+			"openai_codex_ticket_enabled":   false,
+			"codex_turn_ticket:gpt-5.6-sol": map[string]any{"state": "secret"},
+		},
+	})
+
+	require.Equal(t, false, metadata.Extra["openai_codex_ticket_enabled"])
+	require.NotContains(t, metadata.Extra, "codex_turn_ticket:gpt-5.6-sol")
 }
 
 func TestSchedulerMetadataAccountDropsInvalidUpstreamBillingProbe(t *testing.T) {
