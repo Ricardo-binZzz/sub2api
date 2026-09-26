@@ -592,6 +592,18 @@ func (s *HTTPUpstreamSuite) TestNilConfigResponseHeaderTimeoutFallback() {
 	require.Equal(s.T(), 300*time.Second, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 
+func (s *HTTPUpstreamSuite) TestResolvedIPValidationDoesNotDependOnHostnameAllowlist() {
+	s.cfg.Security.URLAllowlist.Enabled = false
+	s.cfg.Security.URLAllowlist.AllowPrivateHosts = false
+	require.True(s.T(), s.newService().shouldValidateResolvedIP())
+
+	s.cfg.Security.URLAllowlist.Enabled = true
+	require.True(s.T(), s.newService().shouldValidateResolvedIP())
+
+	s.cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	require.False(s.T(), s.newService().shouldValidateResolvedIP())
+}
+
 // TestCustomResponseHeaderTimeout 测试自定义响应头超时配置
 // 验证配置值能正确应用到 Transport
 func (s *HTTPUpstreamSuite) TestCustomResponseHeaderTimeout() {

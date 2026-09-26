@@ -8,9 +8,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
+
+func TestProxyProbeResolvedIPValidationDoesNotDependOnHostnameAllowlist(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowPrivateHosts = false
+
+	prober, ok := NewProxyExitInfoProber(cfg).(*proxyProbeService)
+	require.True(t, ok)
+	require.True(t, prober.validateResolvedIP)
+
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	prober, ok = NewProxyExitInfoProber(cfg).(*proxyProbeService)
+	require.True(t, ok)
+	require.False(t, prober.validateResolvedIP)
+}
 
 type ProxyProbeServiceSuite struct {
 	suite.Suite

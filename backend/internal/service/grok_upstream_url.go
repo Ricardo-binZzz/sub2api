@@ -9,7 +9,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLValidator, error) {
@@ -40,23 +39,13 @@ func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLVali
 	}
 }
 
-// grokOperatorPolicyValidator 按全局出站 URL 安全策略校验自定义 base_url：
-// 白名单开启时强制 UpstreamHosts；关闭时仅做格式校验（HTTP 允许与否跟随配置）。
+// grokOperatorPolicyValidator 按全局出站 URL 安全策略校验自定义 base_url。
 func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
 	if cfg == nil {
 		return xai.ValidateBaseURL
 	}
-	if !cfg.Security.URLAllowlist.Enabled {
-		return func(raw string) (string, error) {
-			return urlvalidator.ValidateURLFormat(raw, cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		}
-	}
 	return func(raw string) (string, error) {
-		return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: true,
-			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
-		})
+		return validateOutboundURL(raw, cfg, cfg.Security.URLAllowlist.UpstreamHosts)
 	}
 }
 
