@@ -9071,6 +9071,7 @@ import {
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
+import { buildApiCallbackUrl } from "@/utils/oauthCallbackUrl";
 import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
 import { normalizeVisibleMethod } from "@/components/payment/paymentFlow";
@@ -10723,15 +10724,12 @@ const addQuotaNotifyEmail = () => {
 const currentOrigin =
   typeof window !== "undefined" ? window.location.origin : "";
 
-function buildApiCallbackUrl(path: string): string {
-  const base = (form.api_base_url || currentOrigin).replace(/\/+$/, "");
-  const apiRoot = base.endsWith("/api/v1") ? base : `${base}/api/v1`;
-  return `${apiRoot}${path.startsWith("/") ? path : `/${path}`}`;
-}
-
 // LinuxDo OAuth redirect URL suggestion
 const linuxdoRedirectUrlSuggestion = computed(() => {
-  return buildApiCallbackUrl("/auth/oauth/linuxdo/callback");
+  return buildApiCallbackUrl(
+    form.api_base_url || currentOrigin,
+    "/auth/oauth/linuxdo/callback",
+  );
 });
 
 async function setAndCopyLinuxdoRedirectUrl() {
@@ -10748,11 +10746,17 @@ async function setAndCopyLinuxdoRedirectUrl() {
 type EmailOAuthProvider = "github" | "google";
 
 const githubOAuthRedirectUrlSuggestion = computed(() => {
-  return buildApiCallbackUrl("/auth/oauth/github/callback");
+  return buildApiCallbackUrl(
+    form.api_base_url || currentOrigin,
+    "/auth/oauth/github/callback",
+  );
 });
 
 const googleOAuthRedirectUrlSuggestion = computed(() => {
-  return buildApiCallbackUrl("/auth/oauth/google/callback");
+  return buildApiCallbackUrl(
+    form.api_base_url || currentOrigin,
+    "/auth/oauth/google/callback",
+  );
 });
 
 async function setAndCopyEmailOAuthRedirectUrl(provider: EmailOAuthProvider) {
@@ -10774,7 +10778,10 @@ async function setAndCopyEmailOAuthRedirectUrl(provider: EmailOAuthProvider) {
 }
 
 const wechatRedirectUrlSuggestion = computed(() => {
-  return buildApiCallbackUrl("/auth/oauth/wechat/callback");
+  return buildApiCallbackUrl(
+    form.api_base_url || currentOrigin,
+    "/auth/oauth/wechat/callback",
+  );
 });
 
 function syncWeChatConnectMode(preferredMode?: WeChatConnectMode) {
@@ -10839,7 +10846,10 @@ async function setAndCopyWeChatRedirectUrl() {
 }
 
 const oidcRedirectUrlSuggestion = computed(() => {
-  return buildApiCallbackUrl("/auth/oauth/oidc/callback");
+  return buildApiCallbackUrl(
+    form.api_base_url || currentOrigin,
+    "/auth/oauth/oidc/callback",
+  );
 });
 
 async function setAndCopyOIDCRedirectUrl() {
