@@ -57,8 +57,10 @@ func (u *systemOneHTTPUpstream) DoWithTLS(req *http.Request, _ string, _ int64, 
 }
 
 func newSystemOneTestService(upstream HTTPUpstream) *GatewayService {
+	// 测试上游是 httptest 回环服务；fork 的 outbound URL 策略默认阻断私网/回环
+	// （validateOutboundURL），与 grok/cpr 等测试一致，这里显式放行私网。
 	return &GatewayService{
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true}}},
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{AllowInsecureHTTP: true, AllowPrivateHosts: true}}},
 		httpUpstream: upstream,
 	}
 }
