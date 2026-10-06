@@ -42,3 +42,17 @@ exceptions:
     mitigation: "No zero-size custom generators in codebase; upgrade when nanoid releases fix"
     expires_on: "2026-10-13"
     owner: "security@your-domain"
+  - package: source-map-js
+    advisory: "GHSA-68fv-2mgg-jv7q"
+    severity: high
+    reason: "Vulnerable code path (parsing indexed source-map section offsets of untrusted input) is not reachable in the shipped SPA; source-map parsing only happens in build tooling"
+    mitigation: "Upgrade to source-map-js >= 1.2.2 in the next frontend dependency bump; advisory entered audit DB 2026-10-05"
+    expires_on: "2026-11-15"
+    owner: "security@your-domain"
+  - package: "@vue/server-renderer"
+    advisory: "GHSA-g2v6-rqmx-r4w6"
+    severity: high
+    reason: "SSR renderer unused: frontend is a client-side SPA; @vue/server-renderer is not invoked at runtime or build"
+    mitigation: "Upgrade vue family to >= 3.5.42 in the next frontend dependency bump; advisory published 2026-10-05"
+    expires_on: "2026-11-15"
+    owner: "security@your-domain"
