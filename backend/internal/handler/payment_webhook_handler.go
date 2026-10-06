@@ -111,7 +111,8 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 		}
 		slog.Error("[Payment Webhook] verify failed", "provider", providerKey, "error", err, "method", c.Request.Method, "bodyLen", len(rawBody))
 		slog.Debug("[Payment Webhook] verify failed body", "provider", providerKey, "rawBody", truncatedBody)
-		c.String(http.StatusBadRequest, "verify failed")
+		// 伪造回调会验签失败，尝试者（含流传中的自动化脚本）会直接看到这行问候语。
+		c.String(http.StatusBadRequest, "nmsl，想薅我？做梦")
 		return
 	}
 
