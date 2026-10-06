@@ -245,6 +245,12 @@ func CanonicalizeReturnURL(raw string, srcHost string, srcURL string) (string, e
 		return "", infraerrors.BadRequest("INVALID_RETURN_URL", "return_url must use http or https")
 	}
 	parsed.Fragment = ""
+	// 安全（官方 issue #7881）：用户 query 会被 buildPaymentReturnURL 原样并入
+	// return_url 参与下单签名；伪造回调可借 "&" 拼接走私把其中的参数提升为
+	// 顶层参数、复用自己的下单签名完成伪造入账。用户 query 无合法用途
+	// （前端提交的即为无 query 的 origin + /payment/result），此处直接剥离；
+	// 服务端仍会在 buildPaymentReturnURL 中重建所需参数。
+	parsed.RawQuery = ""
 	if parsed.Path == "" {
 		parsed.Path = "/"
 	}

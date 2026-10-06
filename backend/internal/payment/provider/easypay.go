@@ -33,6 +33,31 @@ const (
 	deviceMobile           = "mobile"
 )
 
+// easyPayNotifyAllowedParams 限定易支付异步通知允许携带的字段集合。
+// 集合覆盖 AliMPay（v1：pid/trade_no/out_trade_no/api_trade_no/type/
+// trade_status/addtime/endtime/name/money/param/buyer + sign/sign_type）
+// 与 EPUSDT（epay 兼容：含 trade_id 变体）的真实通知字段；其余字段
+// （return_url、notify_url、device、clientip…）一律拒绝——easyPaySign
+// 的拼接不做转义，允许自由文本字段会被 "&" 拼接走私用来复用下单签名，
+// 伪造支付成功回调（官方 issue #7881）。
+var easyPayNotifyAllowedParams = map[string]bool{
+	"pid":          true,
+	"trade_no":     true,
+	"trade_id":     true,
+	"out_trade_no": true,
+	"api_trade_no": true,
+	"type":         true,
+	"trade_status": true,
+	"name":         true,
+	"money":        true,
+	"addtime":      true,
+	"endtime":      true,
+	"param":        true,
+	"buyer":        true,
+	"sign":         true,
+	"sign_type":    true,
+}
+
 // EasyPay implements payment.Provider for the EasyPay aggregation platform.
 type EasyPay struct {
 	instanceID string
@@ -374,8 +399,13 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 		return nil, fmt.Errorf("parse notify: %w", err)
 	}
 	// url.ParseQuery already decodes values — no additional decode needed.
+	// 白名单校验：拒绝任何异常字段，阻断 return_url 等自由文本字段带来的
+	// "&" 拼接走私（可复用下单签名伪造支付成功回调，官方 issue #7881）。
 	params := make(map[string]string)
 	for k := range values {
+		if !easyPayNotifyAllowedParams[k] {
+			return nil, fmt.Errorf("unexpected notify param: %s", k)
+		}
 		params[k] = values.Get(k)
 	}
 	sign := params["sign"]
