@@ -68,6 +68,10 @@ const messages: Record<string, string> = {
   'usage.imageTotalPrice': 'Image total price',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
+  'usage.latencyFirstToken': 'First',
+  'usage.latencyDuration': 'Total',
+  'usage.outputRate': 'Output rate',
+  'usage.outputRateHint': 'Avg out t/s',
   'usage.nativeCompactionV2': 'Compaction',
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
@@ -963,5 +967,115 @@ describe('admin UsageTable deleted-user badge', () => {
 
     expect(wrapper.text()).not.toContain('Deleted')
     expect(wrapper.text()).toContain('active@test.com')
+  })
+})
+
+describe('admin UsageTable output rate', () => {
+  const DataTableLatencyStub = {
+    props: ['data'],
+    template: `
+      <div>
+        <div v-for="row in data" :key="row.request_id">
+          <slot name="cell-latency" :row="row" />
+        </div>
+      </div>
+    `,
+  }
+
+  it('computes post-first-token output rate for streamed rows', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-rate-stream',
+            output_tokens: 600,
+            first_token_ms: 1000,
+            duration_ms: 7000,
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableLatencyStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const rate = wrapper.get('[data-testid="output-rate"]')
+    expect(rate.text()).toBe('100.0 t/s')
+    expect(rate.attributes('title')).toBe('Avg out t/s')
+  })
+
+  it('hides the rate for tiny samples or short generation windows', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-rate-tiny',
+            output_tokens: 10,
+            first_token_ms: 1000,
+            duration_ms: 7000,
+          },
+          {
+            ...baseImageRow,
+            request_id: 'req-rate-short-window',
+            output_tokens: 500,
+            first_token_ms: 1000,
+            duration_ms: 1300,
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableLatencyStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const empties = wrapper.findAll('[data-testid="output-rate-empty"]')
+    expect(empties).toHaveLength(2)
+    expect(empties[0].text()).toBe('-')
+    expect(empties[1].text()).toBe('-')
+  })
+
+  it('hides the rate when first-token data is missing (non-stream rows)', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-rate-no-ttft',
+            output_tokens: 500,
+            first_token_ms: null,
+            duration_ms: 7000,
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableLatencyStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-testid="output-rate-empty"]').text()).toBe('-')
+    expect(wrapper.find('[data-testid="output-rate"]').exists()).toBe(false)
   })
 })

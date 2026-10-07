@@ -247,6 +247,14 @@
               <span v-else class="text-gray-400 dark:text-gray-500">-</span>
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.outputRate') }}</span>
+              <span
+                v-if="formatOutputRate(row.output_tokens, row.first_token_ms, row.duration_ms) !== null"
+                class="font-medium tabular-nums"
+                :title="t('usage.outputRateHint')"
+                data-testid="output-rate"
+              >{{ formatOutputRate(row.output_tokens, row.first_token_ms, row.duration_ms) }}</span>
+              <span v-else class="text-gray-400 dark:text-gray-500" data-testid="output-rate-empty">-</span>
             </div>
           </div>
         </template>
@@ -837,6 +845,22 @@ const formatDuration = (ms: number | null | undefined): string => {
   const totalSec = Math.round(ms / 1000)
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+}
+
+// 输出速率（t/s）：首字延迟之后纯生成阶段的平均速度 = 输出 tokens ÷ 生成窗口。
+// 样本太小（<20 tokens）或窗口太短（<1s）时噪声大，不展示（返回 null）。
+const MIN_OUTPUT_RATE_TOKENS = 20
+const MIN_OUTPUT_RATE_WINDOW_MS = 1000
+
+const formatOutputRate = (
+  outputTokens: number | null | undefined,
+  firstTokenMs: number | null | undefined,
+  durationMs: number | null | undefined,
+): string | null => {
+  if (outputTokens == null || firstTokenMs == null || durationMs == null) return null
+  const generationWindowMs = durationMs - firstTokenMs
+  if (outputTokens < MIN_OUTPUT_RATE_TOKENS || generationWindowMs < MIN_OUTPUT_RATE_WINDOW_MS) return null
+  return `${((outputTokens * 1000) / generationWindowMs).toFixed(1)} t/s`
 }
 
 // Cost tooltip functions

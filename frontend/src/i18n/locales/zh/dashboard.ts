@@ -400,6 +400,8 @@ export default {
     latency: '延迟',
     latencyFirstToken: '首字',
     latencyDuration: '总耗时',
+    outputRate: '输出速率',
+    outputRateHint: '首字之后纯生成阶段的平均速度（输出 tokens/秒）',
     time: '时间',
     ws: 'WS',
     stream: '流式',
