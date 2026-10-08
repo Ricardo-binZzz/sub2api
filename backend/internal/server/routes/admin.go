@@ -97,6 +97,9 @@ func RegisterAdminRoutes(
 		// 用户属性管理
 		registerUserAttributeRoutes(admin, h)
 
+		// 工单台（管理端）
+		registerAdminTicketRoutes(admin, h.Ticket)
+
 		// 错误透传规则管理
 		registerErrorPassthroughRoutes(admin, h)
 
