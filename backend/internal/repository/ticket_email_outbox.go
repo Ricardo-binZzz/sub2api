@@ -10,17 +10,22 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
-// isMissingRelationError reports whether err is a PostgreSQL "relation does not
-// exist" error, used to fall back to raw usage_logs when the pre-aggregated
-// usage dashboard table is absent.
+// isMissingRelationError reports whether err indicates a missing PostgreSQL
+// relation/table (used to fall back from the pre-aggregated usage dashboard
+// rollup to raw usage_logs when the rollup table is absent).
 func isMissingRelationError(err error) bool {
 	if err == nil {
 		return false
 	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "does not exist") && strings.Contains(s, "relation")
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "42P01" {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not exist") || strings.Contains(msg, "undefined table") || strings.Contains(msg, "no such table")
 }
 
 const ticketEmailOutboxPrefix = "ticket_reply_email:"
