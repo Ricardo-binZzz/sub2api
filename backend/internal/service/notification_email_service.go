@@ -33,6 +33,7 @@ const (
 	NotificationEmailEventCyberPolicyNotice           = "content_moderation.cyber_policy_notice"
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
+	NotificationEmailEventTicketReply                 = "support.ticket_reply"
 
 	notificationEmailTemplateKeyPrefix    = "notification_email_template:"
 	notificationEmailPreferenceKeyPrefix  = "notification_email_preference:"
@@ -369,7 +370,13 @@ func (s *NotificationEmailService) PreviewTemplate(ctx context.Context, input No
 	for key, value := range input.Variables {
 		variables[key] = value
 	}
-	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, nil)
+	var rawHTML map[string]string
+	if normalizedEvent == NotificationEmailEventTicketReply {
+		if _, customConversation := variables["conversation_html"]; !customConversation {
+			rawHTML = map[string]string{"conversation_html": ticketEmailPreviewConversation(normalizedLocale == notificationEmailLocaleChinese)}
+		}
+	}
+	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, rawHTML)
 }
 
 func (s *NotificationEmailService) Send(ctx context.Context, input NotificationEmailSendInput) error {
@@ -1152,9 +1159,27 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 			append(append([]string{}, notificationEmailOpsSummaryPlaceholders...), "report_detail_display", "report_html")...,
 		),
 	},
+	NotificationEmailEventTicketReply: {
+		Event:        NotificationEmailEventTicketReply,
+		Label:        "Support ticket reply",
+		Description:  "Sent to the ticket owner when support replies to their ticket.",
+		Category:     "support",
+		Optional:     false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "ticket_id", "ticket_subject", "ticket_url", "ticket_link_display", "conversation_html"),
+	},
 }
 
 var notificationEmailOfficialTemplates = map[string]map[string]notificationEmailOfficialTemplate{
+	NotificationEmailEventTicketReply: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] New reply to ticket #{{ticket_id}} · {{ticket_subject}}",
+			HTML:    ticketReplyEmailTemplate(false),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 您的工单已有新的回复 · #{{ticket_id}} {{ticket_subject}}",
+			HTML:    ticketReplyEmailTemplate(true),
+		},
+	},
 	NotificationEmailEventAuthVerifyCode: {
 		notificationEmailDefaultLocale: {
 			Subject: "[{{site_name}}] Email verification code",
