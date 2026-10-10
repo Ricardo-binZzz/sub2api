@@ -72,6 +72,9 @@ func RegisterUserRoutes(
 			}
 		}
 
+		// 用户工单
+		registerTicketRoutes(authenticated, h.Ticket)
+
 		// API Key管理
 		keys := authenticated.Group("/keys")
 		{

@@ -26,6 +26,17 @@
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
+        <!-- Support Ticket Shortcut -->
+        <router-link
+          v-if="user"
+          :to="authStore.isAdmin ? '/admin/tickets' : '/tickets'"
+          class="header-shortcut inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
+          :title="t('tickets.support')"
+          :aria-label="t('tickets.support')"
+        >
+          <Icon name="chat" size="md" />
+        </router-link>
+
         <!-- Docs Link -->
         <a
           v-if="docUrl"
