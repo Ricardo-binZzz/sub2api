@@ -1591,6 +1591,37 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiFast.freeHint") }}
           </p>
+          <template v-if="createForm.force_openai_fast">
+            <div class="mt-4">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.astraTier") }}
+              </label>
+              <Select
+                v-model="createForm.force_openai_astra_tier"
+                :options="astraTierOptions"
+                data-testid="create-force-openai-astra-tier"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {{ t("admin.groups.openaiFast.astraTierHint") }}
+              </p>
+            </div>
+            <div class="flex items-center justify-between gap-4 mt-4">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.ultrafastMultiplier") }}
+              </label>
+              <input
+                v-model.number="createForm.ultrafast_multiplier"
+                type="number"
+                step="0.01"
+                min="0"
+                class="input max-w-[140px]"
+                data-testid="create-ultrafast-multiplier"
+              />
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {{ t("admin.groups.openaiFast.ultrafastMultiplierHint") }}
+            </p>
+          </template>
         </div>
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
@@ -3241,6 +3272,37 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiFast.freeHint") }}
           </p>
+          <template v-if="editForm.force_openai_fast">
+            <div class="mt-4">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.astraTier") }}
+              </label>
+              <Select
+                v-model="editForm.force_openai_astra_tier"
+                :options="astraTierOptions"
+                data-testid="edit-force-openai-astra-tier"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {{ t("admin.groups.openaiFast.astraTierHint") }}
+              </p>
+            </div>
+            <div class="flex items-center justify-between gap-4 mt-4">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.ultrafastMultiplier") }}
+              </label>
+              <input
+                v-model.number="editForm.ultrafast_multiplier"
+                type="number"
+                step="0.01"
+                min="0"
+                class="input max-w-[140px]"
+                data-testid="edit-ultrafast-multiplier"
+              />
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {{ t("admin.groups.openaiFast.ultrafastMultiplierHint") }}
+            </p>
+          </template>
         </div>
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
@@ -4618,6 +4680,11 @@ const platformOptions = computed(() =>
   ),
 );
 
+const astraTierOptions = computed(() => [
+  { value: "auto", label: t("admin.groups.openaiFast.astraTierAuto") },
+  { value: "ultrafast", label: t("admin.groups.openaiFast.astraTierUltrafast") },
+]);
+
 const platformFilterOptions = computed(() => [
   { value: "", label: t("admin.groups.allPlatforms") },
   ...GROUP_PLATFORM_OPTIONS,
@@ -4951,6 +5018,8 @@ const createForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   free_openai_fast: false,
+  force_openai_astra_tier: 'auto' as 'auto' | 'ultrafast',
+  ultrafast_multiplier: 0,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
@@ -5316,6 +5385,8 @@ const editForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   free_openai_fast: false,
+  force_openai_astra_tier: 'auto' as 'auto' | 'ultrafast',
+  ultrafast_multiplier: 0,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
@@ -5793,6 +5864,8 @@ const closeCreateModal = () => {
   createForm.long_context_pricing_enabled = true;
   createForm.force_openai_fast = false;
   createForm.free_openai_fast = false;
+  createForm.force_openai_astra_tier = 'auto';
+  createForm.ultrafast_multiplier = 0;
   createForm.model_pricing = [];
   createForm.web_search_price_per_call = null;
   createForm.search_price_per_1k = null;
@@ -5922,6 +5995,13 @@ const handleCreateGroup = async () => {
         createForm.platform,
         createForm.free_openai_fast,
       ),
+      force_openai_astra_tier: normalizeGroupOpenAIFast(
+        createForm.platform,
+        createForm.force_openai_astra_tier === 'ultrafast',
+      )
+        ? 'ultrafast'
+        : 'auto',
+      ultrafast_multiplier: createForm.ultrafast_multiplier || 0,
       model_pricing: groupPricingToAPI(
         createForm.model_pricing,
         createForm.platform,
@@ -6061,6 +6141,9 @@ const handleEdit = async (group: AdminGroup) => {
     group.long_context_pricing_enabled ?? true;
   editForm.force_openai_fast = group.force_openai_fast ?? false;
   editForm.free_openai_fast = group.free_openai_fast ?? false;
+  editForm.force_openai_astra_tier =
+    group.force_openai_astra_tier === 'ultrafast' ? 'ultrafast' : 'auto';
+  editForm.ultrafast_multiplier = group.ultrafast_multiplier ?? 0;
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
   editForm.allow_batch_image_generation =
@@ -6195,6 +6278,8 @@ const closeEditModal = () => {
   editForm.long_context_pricing_enabled = true;
   editForm.force_openai_fast = false;
   editForm.free_openai_fast = false;
+  editForm.force_openai_astra_tier = 'auto';
+  editForm.ultrafast_multiplier = 0;
   editForm.model_pricing = [];
   editForm.web_search_price_per_call = null;
   editForm.search_price_per_1k = null;
@@ -6258,6 +6343,13 @@ const handleUpdateGroup = async () => {
         editForm.platform,
         editForm.free_openai_fast,
       ),
+      force_openai_astra_tier: normalizeGroupOpenAIFast(
+        editForm.platform,
+        editForm.force_openai_astra_tier === 'ultrafast',
+      )
+        ? 'ultrafast'
+        : 'auto',
+      ultrafast_multiplier: editForm.ultrafast_multiplier || 0,
       model_pricing: groupPricingToAPI(
         editForm.model_pricing,
         editForm.platform,

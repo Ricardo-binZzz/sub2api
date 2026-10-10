@@ -248,6 +248,13 @@ func (Group) Fields() []ent.Field {
 		field.Bool("free_openai_fast").
 			Default(false).
 			Comment("是否让此 OpenAI/Composite 分组的 Fast 请求按 Standard 价格计费"),
+		field.String("force_openai_astra_tier").
+			Default("auto").
+			Comment("force_openai_fast 开启时 Astra 模型的档位：auto=保持 priority（默认），ultrafast=Astra 升级为 ultrafast、其余仍为 priority"),
+		field.Float("ultrafast_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0).
+			Comment("分组级 ultrafast 计费倍率；0=使用模型默认（Astra 为 6）。仅对本组 ultrafast 请求生效"),
 		field.Bool("require_oauth_only").
 			Default(false).
 			Comment("仅允许非 apikey 类型账号关联到此分组"),

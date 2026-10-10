@@ -102,6 +102,11 @@ type Group struct {
 	AllowLive                   bool
 	ForceOpenAIFast             bool // 强制 OpenAI 网关请求使用 service_tier=priority
 	FreeOpenAIFast              bool // OpenAI Fast 请求按 Standard 价格向用户计费
+	// ForceOpenAIAstraTier 在 ForceOpenAIFast 开启时控制 Astra 模型档位：
+	// "auto"（默认）保持 priority；"ultrafast" 将 Astra 升级为 ultrafast，其余模型仍为 priority。
+	ForceOpenAIAstraTier string
+	// UltrafastMultiplier 为该分组 ultrafast 请求的计费倍率；0 表示使用模型默认（Astra 为 6）。
+	UltrafastMultiplier float64
 	RequireOAuthOnly            bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
 	DefaultMappedModel          string

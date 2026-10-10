@@ -1265,7 +1265,13 @@ export default {
         force: '强制使用 Fast（priority）',
         hint: '开启后，此分组的 OpenAI 请求会强制写入 service_tier=priority；全局 Fast/Flex 策略仍可过滤或拦截。保存后新请求立即生效，已建立的 WebSocket 会话需重连。',
         free: '免费 Fast',
-        freeHint: '该分组的 Fast 请求仍使用 priority 档位，但客户实际费用按同一请求的 Standard 价格计算。'
+        freeHint: '该分组的 Fast 请求仍使用 priority 档位，但客户实际费用按同一请求的 Standard 价格计算。',
+        astraTier: 'Astra 档位',
+        astraTierHint: '强制 Fast 开启时，Astra 模型（gpt-6-astra）的档位：auto=与其它模型一样使用 priority；ultrafast=Astra 升级为 ultrafast，其余模型仍为 priority。',
+        astraTierAuto: 'auto（与其它模型一致，priority）',
+        astraTierUltrafast: 'ultrafast（Astra 升级）',
+        ultrafastMultiplier: 'ultrafast 计费倍率',
+        ultrafastMultiplierHint: '本分组 ultrafast 请求的计费倍率；0=使用模型默认（Astra 为 6）。仅对本分组生效，不影响其它分组。'
       },
       invalidRequestFallback: {
         title: '无效请求兜底分组',

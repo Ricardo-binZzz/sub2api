@@ -159,6 +159,28 @@ func groupBillsOpenAIFastAtStandard(apiKey *APIKey, account *Account, serviceTie
 	}
 }
 
+// groupProtectsAstraUltrafastTier reports whether the request must keep its
+// ultrafast tier for billing even if the upstream reports a lower tier. This
+// holds when the API key's group forces Astra to ultrafast (operator intent);
+// the upstream may still answer with default/priority while charging ultrafast,
+// so a downgrade would under-bill and invert the margin.
+func groupProtectsAstraUltrafastTier(apiKey *APIKey, account *Account, result *OpenAIForwardResult) bool {
+	if result == nil || apiKey == nil || apiKey.Group == nil {
+		return false
+	}
+	group := apiKey.Group
+	if group.ForceOpenAIAstraTier != OpenAIFastTierUltrafast {
+		return false
+	}
+	if account == nil || !groupSupportsOpenAIFast(group.Platform) {
+		return false
+	}
+	if normalizeBillingServiceTier(optionalStringValue(result.ServiceTier)) != OpenAIFastTierUltrafast {
+		return false
+	}
+	return isOpenAIGPT6AstraModel(result.Model)
+}
+
 // RecordUsage records usage and deducts balance
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
 	if input == nil {
@@ -184,7 +206,16 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if !isGrokVideoUsageResult(result, nil) {
 		ApplyOpenAIImageBillingResolution(result)
 	}
-	logServiceTierBillingDowngrade("service.openai_gateway", account, result.RequestID, ApplyOpenAIServiceTierBillingResolution(billingAccount, result))
+	// 分组 Astra→ultrafast 策略是运营者显式意图：即便上游响应回 default/priority，
+	// 也不按更低档降档计费，避免上游按 ultrafast 收费而站内按 priority 记账形成倒挂。
+	if groupProtectsAstraUltrafastTier(apiKey, billingAccount, result) {
+		logServiceTierBillingDowngrade("service.openai_gateway", account, result.RequestID, ServiceTierBillingResolution{
+			Requested: normalizeBillingServiceTier(optionalStringValue(result.ServiceTier)),
+			Billing:   normalizeBillingServiceTier(optionalStringValue(result.ServiceTier)),
+		})
+	} else {
+		logServiceTierBillingDowngrade("service.openai_gateway", account, result.RequestID, ApplyOpenAIServiceTierBillingResolution(billingAccount, result))
+	}
 
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。

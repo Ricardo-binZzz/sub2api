@@ -1267,7 +1267,13 @@ export default {
         force: 'Force Fast (priority)',
         hint: 'Forces service_tier=priority on OpenAI requests in this group. The global Fast/Flex policy can still filter or block it. New requests update immediately after saving; existing WebSocket sessions must reconnect.',
         free: 'Free Fast',
-        freeHint: 'Fast requests in this group still use the priority tier, but customers are charged the equivalent Standard price.'
+        freeHint: 'Fast requests in this group still use the priority tier, but customers are charged the equivalent Standard price.',
+        astraTier: 'Astra tier',
+        astraTierHint: 'When Force Fast is on, the tier used for the Astra model (gpt-6-astra): auto = priority like every other model; ultrafast = Astra is upgraded to ultrafast while other models stay on priority.',
+        astraTierAuto: 'auto (priority, same as others)',
+        astraTierUltrafast: 'ultrafast (upgrade Astra)',
+        ultrafastMultiplier: 'ultrafast billing multiplier',
+        ultrafastMultiplierHint: 'Billing multiplier for ultrafast requests in this group; 0 = model default (Astra is 6). Applies to this group only.'
       },
       invalidRequestFallback: {
         title: 'Invalid Request Fallback Group',

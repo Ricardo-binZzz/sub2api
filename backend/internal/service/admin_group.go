@@ -647,6 +647,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		AllowLive:                       input.AllowLive,
 		ForceOpenAIFast:                 input.ForceOpenAIFast,
 		FreeOpenAIFast:                  input.FreeOpenAIFast,
+		ForceOpenAIAstraTier:            normalizeGroupForceOpenAIAstraTier(input.ForceOpenAIAstraTier),
+		UltrafastMultiplier:             normalizeGroupUltrafastMultiplier(input.UltrafastMultiplier),
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
 		DefaultMappedModel:              input.DefaultMappedModel,
@@ -700,6 +702,31 @@ func normalizePrice(price *float64) *float64 {
 		return nil
 	}
 	return price
+}
+
+// normalizeGroupForceOpenAIAstraTier 归一化分组 Astra 档位配置，仅接受
+// "ultrafast"；其余（含空串、未知值）一律归为 "auto"（保持 priority）。
+func normalizeGroupForceOpenAIAstraTier(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case OpenAIFastTierUltrafast:
+		return OpenAIFastTierUltrafast
+	default:
+		return "auto"
+	}
+}
+
+// normalizeGroupUltrafastMultiplierValue 归一化分组级 ultrafast 倍率：
+// 负数归零（表示使用模型默认），0 保留。
+func normalizeGroupUltrafastMultiplierValue(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+// normalizeGroupUltrafastMultiplier 是 Create 路径（值类型）的封装。
+func normalizeGroupUltrafastMultiplier(value float64) float64 {
+	return normalizeGroupUltrafastMultiplierValue(value)
 }
 
 // validateFallbackGroup 校验降级分组的有效性
@@ -1012,6 +1039,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.FreeOpenAIFast != nil {
 		group.FreeOpenAIFast = *input.FreeOpenAIFast
+	}
+	if input.ForceOpenAIAstraTier != nil {
+		group.ForceOpenAIAstraTier = normalizeGroupForceOpenAIAstraTier(*input.ForceOpenAIAstraTier)
+	}
+	if input.UltrafastMultiplier != nil {
+		group.UltrafastMultiplier = normalizeGroupUltrafastMultiplierValue(*input.UltrafastMultiplier)
 	}
 	if input.RequireOAuthOnly != nil {
 		group.RequireOAuthOnly = *input.RequireOAuthOnly
