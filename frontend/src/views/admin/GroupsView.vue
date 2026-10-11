@@ -5018,7 +5018,7 @@ const createForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   free_openai_fast: false,
-  force_openai_astra_tier: 'auto' as 'auto' | 'ultrafast',
+  force_openai_astra_tier: 'auto',
   ultrafast_multiplier: 0,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
@@ -5385,7 +5385,7 @@ const editForm = reactive({
   long_context_pricing_enabled: true,
   force_openai_fast: false,
   free_openai_fast: false,
-  force_openai_astra_tier: 'auto' as 'auto' | 'ultrafast',
+  force_openai_astra_tier: 'auto',
   ultrafast_multiplier: 0,
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置

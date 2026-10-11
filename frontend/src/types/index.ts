@@ -629,7 +629,7 @@ export interface Group {
 export interface AdminGroup extends Group {
   force_openai_fast: boolean
   free_openai_fast: boolean
-  force_openai_astra_tier: 'auto' | 'ultrafast'
+  force_openai_astra_tier: string
   ultrafast_multiplier: number
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制（openai/anthropic/gemini/grok/antigravity 分组可启用；margin/buffer 为小数存储）。
@@ -805,7 +805,7 @@ export interface CreateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
-  force_openai_astra_tier?: 'auto' | 'ultrafast'
+  force_openai_astra_tier?: string
   ultrafast_multiplier?: number
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
@@ -873,7 +873,7 @@ export interface UpdateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
-  force_openai_astra_tier?: 'auto' | 'ultrafast'
+  force_openai_astra_tier?: string
   ultrafast_multiplier?: number
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean

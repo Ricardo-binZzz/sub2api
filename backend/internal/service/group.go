@@ -102,11 +102,6 @@ type Group struct {
 	AllowLive                   bool
 	ForceOpenAIFast             bool // 强制 OpenAI 网关请求使用 service_tier=priority
 	FreeOpenAIFast              bool // OpenAI Fast 请求按 Standard 价格向用户计费
-	// ForceOpenAIAstraTier 在 ForceOpenAIFast 开启时控制 Astra 模型档位：
-	// "auto"（默认）保持 priority；"ultrafast" 将 Astra 升级为 ultrafast，其余模型仍为 priority。
-	ForceOpenAIAstraTier string
-	// UltrafastMultiplier 为该分组 ultrafast 请求的计费倍率；0 表示使用模型默认（Astra 为 6）。
-	UltrafastMultiplier float64
 	RequireOAuthOnly            bool // 仅允许非 apikey 类型账号关联（OpenAI/Antigravity/Anthropic/Gemini）
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
 	DefaultMappedModel          string
@@ -115,6 +110,12 @@ type Group struct {
 	// CodexModelsManifestConfig 开启后，普通模型列表与 Codex manifest 优先使用
 	// 固定账号列表拉取并合并，不经过调度器（仅 openai 平台）。
 	CodexModelsManifestConfig GroupCodexModelsManifestConfig
+
+	// ForceOpenAIAstraTier 在 ForceOpenAIFast 开启时控制 Astra 模型档位：
+	// "auto"（默认）保持 priority；"ultrafast" 将 Astra 升级为 ultrafast，其余模型仍为 priority。
+	ForceOpenAIAstraTier string
+	// UltrafastMultiplier 为该分组 ultrafast 请求的计费倍率；0 表示使用模型默认（Astra 为 6）。
+	UltrafastMultiplier float64
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
