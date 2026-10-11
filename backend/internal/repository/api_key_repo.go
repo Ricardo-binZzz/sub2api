@@ -212,6 +212,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldAllowLive,
 				group.FieldForceOpenaiFast,
 				group.FieldFreeOpenaiFast,
+				group.FieldForceOpenaiAstraTier,
+				group.FieldUltrafastMultiplier,
 				group.FieldDefaultMappedModel,
 				group.FieldMessagesDispatchModelConfig,
 				group.FieldModelAllowlist,
