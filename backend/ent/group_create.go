@@ -732,6 +732,34 @@ func (_c *GroupCreate) SetNillableFreeOpenaiFast(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetForceOpenaiAstraTier sets the "force_openai_astra_tier" field.
+func (_c *GroupCreate) SetForceOpenaiAstraTier(v string) *GroupCreate {
+	_c.mutation.SetForceOpenaiAstraTier(v)
+	return _c
+}
+
+// SetNillableForceOpenaiAstraTier sets the "force_openai_astra_tier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableForceOpenaiAstraTier(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetForceOpenaiAstraTier(*v)
+	}
+	return _c
+}
+
+// SetUltrafastMultiplier sets the "ultrafast_multiplier" field.
+func (_c *GroupCreate) SetUltrafastMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetUltrafastMultiplier(v)
+	return _c
+}
+
+// SetNillableUltrafastMultiplier sets the "ultrafast_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUltrafastMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetUltrafastMultiplier(*v)
+	}
+	return _c
+}
+
 // SetRequireOauthOnly sets the "require_oauth_only" field.
 func (_c *GroupCreate) SetRequireOauthOnly(v bool) *GroupCreate {
 	_c.mutation.SetRequireOauthOnly(v)
@@ -1159,6 +1187,14 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultFreeOpenaiFast
 		_c.mutation.SetFreeOpenaiFast(v)
 	}
+	if _, ok := _c.mutation.ForceOpenaiAstraTier(); !ok {
+		v := group.DefaultForceOpenaiAstraTier
+		_c.mutation.SetForceOpenaiAstraTier(v)
+	}
+	if _, ok := _c.mutation.UltrafastMultiplier(); !ok {
+		v := group.DefaultUltrafastMultiplier
+		_c.mutation.SetUltrafastMultiplier(v)
+	}
 	if _, ok := _c.mutation.RequireOauthOnly(); !ok {
 		v := group.DefaultRequireOauthOnly
 		_c.mutation.SetRequireOauthOnly(v)
@@ -1363,6 +1399,12 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.FreeOpenaiFast(); !ok {
 		return &ValidationError{Name: "free_openai_fast", err: errors.New(`ent: missing required field "Group.free_openai_fast"`)}
+	}
+	if _, ok := _c.mutation.ForceOpenaiAstraTier(); !ok {
+		return &ValidationError{Name: "force_openai_astra_tier", err: errors.New(`ent: missing required field "Group.force_openai_astra_tier"`)}
+	}
+	if _, ok := _c.mutation.UltrafastMultiplier(); !ok {
+		return &ValidationError{Name: "ultrafast_multiplier", err: errors.New(`ent: missing required field "Group.ultrafast_multiplier"`)}
 	}
 	if _, ok := _c.mutation.RequireOauthOnly(); !ok {
 		return &ValidationError{Name: "require_oauth_only", err: errors.New(`ent: missing required field "Group.require_oauth_only"`)}
@@ -1656,6 +1698,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FreeOpenaiFast(); ok {
 		_spec.SetField(group.FieldFreeOpenaiFast, field.TypeBool, value)
 		_node.FreeOpenaiFast = value
+	}
+	if value, ok := _c.mutation.ForceOpenaiAstraTier(); ok {
+		_spec.SetField(group.FieldForceOpenaiAstraTier, field.TypeString, value)
+		_node.ForceOpenaiAstraTier = value
+	}
+	if value, ok := _c.mutation.UltrafastMultiplier(); ok {
+		_spec.SetField(group.FieldUltrafastMultiplier, field.TypeFloat64, value)
+		_node.UltrafastMultiplier = value
 	}
 	if value, ok := _c.mutation.RequireOauthOnly(); ok {
 		_spec.SetField(group.FieldRequireOauthOnly, field.TypeBool, value)
@@ -2744,6 +2794,36 @@ func (u *GroupUpsert) SetFreeOpenaiFast(v bool) *GroupUpsert {
 // UpdateFreeOpenaiFast sets the "free_openai_fast" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateFreeOpenaiFast() *GroupUpsert {
 	u.SetExcluded(group.FieldFreeOpenaiFast)
+	return u
+}
+
+// SetForceOpenaiAstraTier sets the "force_openai_astra_tier" field.
+func (u *GroupUpsert) SetForceOpenaiAstraTier(v string) *GroupUpsert {
+	u.Set(group.FieldForceOpenaiAstraTier, v)
+	return u
+}
+
+// UpdateForceOpenaiAstraTier sets the "force_openai_astra_tier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateForceOpenaiAstraTier() *GroupUpsert {
+	u.SetExcluded(group.FieldForceOpenaiAstraTier)
+	return u
+}
+
+// SetUltrafastMultiplier sets the "ultrafast_multiplier" field.
+func (u *GroupUpsert) SetUltrafastMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldUltrafastMultiplier, v)
+	return u
+}
+
+// UpdateUltrafastMultiplier sets the "ultrafast_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUltrafastMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldUltrafastMultiplier)
+	return u
+}
+
+// AddUltrafastMultiplier adds v to the "ultrafast_multiplier" field.
+func (u *GroupUpsert) AddUltrafastMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldUltrafastMultiplier, v)
 	return u
 }
 
@@ -3995,6 +4075,41 @@ func (u *GroupUpsertOne) SetFreeOpenaiFast(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateFreeOpenaiFast() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateFreeOpenaiFast()
+	})
+}
+
+// SetForceOpenaiAstraTier sets the "force_openai_astra_tier" field.
+func (u *GroupUpsertOne) SetForceOpenaiAstraTier(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetForceOpenaiAstraTier(v)
+	})
+}
+
+// UpdateForceOpenaiAstraTier sets the "force_openai_astra_tier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateForceOpenaiAstraTier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateForceOpenaiAstraTier()
+	})
+}
+
+// SetUltrafastMultiplier sets the "ultrafast_multiplier" field.
+func (u *GroupUpsertOne) SetUltrafastMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUltrafastMultiplier(v)
+	})
+}
+
+// AddUltrafastMultiplier adds v to the "ultrafast_multiplier" field.
+func (u *GroupUpsertOne) AddUltrafastMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUltrafastMultiplier(v)
+	})
+}
+
+// UpdateUltrafastMultiplier sets the "ultrafast_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUltrafastMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUltrafastMultiplier()
 	})
 }
 
@@ -5441,6 +5556,41 @@ func (u *GroupUpsertBulk) SetFreeOpenaiFast(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateFreeOpenaiFast() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateFreeOpenaiFast()
+	})
+}
+
+// SetForceOpenaiAstraTier sets the "force_openai_astra_tier" field.
+func (u *GroupUpsertBulk) SetForceOpenaiAstraTier(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetForceOpenaiAstraTier(v)
+	})
+}
+
+// UpdateForceOpenaiAstraTier sets the "force_openai_astra_tier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateForceOpenaiAstraTier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateForceOpenaiAstraTier()
+	})
+}
+
+// SetUltrafastMultiplier sets the "ultrafast_multiplier" field.
+func (u *GroupUpsertBulk) SetUltrafastMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUltrafastMultiplier(v)
+	})
+}
+
+// AddUltrafastMultiplier adds v to the "ultrafast_multiplier" field.
+func (u *GroupUpsertBulk) AddUltrafastMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUltrafastMultiplier(v)
+	})
+}
+
+// UpdateUltrafastMultiplier sets the "ultrafast_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUltrafastMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUltrafastMultiplier()
 	})
 }
 

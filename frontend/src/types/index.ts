@@ -538,7 +538,11 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'composite'
+/**
+ * 分组平台：具体平台或 composite。具体平台以平台清单（constants/platformCatalog）
+ * 为准，后端新登记的平台是 KnownAccountPlatform 之外的字符串。
+ */
+export type GroupPlatform = AccountPlatform | 'composite'
 
 export type VideoModelPrices = Record<string, Record<string, number>>
 
@@ -625,6 +629,8 @@ export interface Group {
 export interface AdminGroup extends Group {
   force_openai_fast: boolean
   free_openai_fast: boolean
+  force_openai_astra_tier: string
+  ultrafast_multiplier: number
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制（openai/anthropic/gemini/grok/antigravity 分组可启用；margin/buffer 为小数存储）。
   // 仅管理员可见：与 rate_multiplier 相乘即可反推上游成本上限，不得下放到 Group。
@@ -799,6 +805,8 @@ export interface CreateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
+  force_openai_astra_tier?: string
+  ultrafast_multiplier?: number
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -865,6 +873,8 @@ export interface UpdateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
+  force_openai_astra_tier?: string
+  ultrafast_multiplier?: number
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -918,7 +928,13 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe'
+/** 前端内置专属界面（图标、配色、表单等）的平台。 */
+export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'command_code' | 'cline'
+/**
+ * 账号平台：内置平台，或后端平台清单中新登记的平台（任意字符串）。
+ * `string & {}` 保留内置平台的字面量补全。
+ */
+export type AccountPlatform = KnownAccountPlatform | (string & {})
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account' | 'cpr'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'

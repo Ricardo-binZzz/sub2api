@@ -1563,6 +1563,14 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	// 内部已强制过）；分组/渠道自定义定价保留运营者配置，不强制覆盖官方价。
 	pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, resolved.Source == PricingSourceLiteLLM, pricingAt)
 
+	// 分组级 ultrafast 倍率：分组显式配置（>0）时覆盖模型默认倍数（克隆后覆盖，
+	// 避免污染共享定价指针）。仅对 ultrafast 档位生效，其余模型/档位不受影响。
+	if input.Group != nil && input.Group.UltrafastMultiplier > 0 && normalizeBillingServiceTier(input.ServiceTier) == OpenAIFastTierUltrafast {
+		cloned := *pricing
+		cloned.UltrafastMultiplier = input.Group.UltrafastMultiplier
+		pricing = &cloned
+	}
+
 	// DeepSeek 模型默认价卡按官方峰谷口径调整：高峰时段（01:00–04:00 与
 	// 06:00–10:00 UTC，仅工作日；北京时间周末全天低谷）按 2× 低谷价计费。
 	// 仅作用于默认价卡（Source=LiteLLM，无分组/渠道自定义定价）——分组/渠道

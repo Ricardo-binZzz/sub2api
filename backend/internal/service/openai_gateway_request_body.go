@@ -61,11 +61,11 @@ func buildOpenAIResponsesURL(base string) string {
 }
 
 // buildOpenAIResponsesURLForPlatform 组装 Responses 端点（平台感知）。
-// DeepSeek 官方 Responses 端点为 /responses（无 /v1 前缀，适配 Codex）；
-// 其余平台维持 /v1/responses。
+// 供应商 profile 声明了 ResponsesPath 时按其拼接（如 DeepSeek 为无 /v1 前缀的
+// /responses）；其余平台维持 /v1/responses。
 func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
-	if platform == PlatformDeepseek {
-		return buildOpenAIEndpointURL(base, "/responses")
+	if profile := LookupProviderProfile(platform); profile != nil && profile.ResponsesPath != "" {
+		return buildOpenAIEndpointURL(base, profile.ResponsesPath)
 	}
 	return buildOpenAIResponsesURL(base)
 }
@@ -1487,6 +1487,18 @@ func normalizeOpenAIResponseFormatSchemasBody(body []byte) ([]byte, bool, error)
 }
 
 func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
+	return normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{ResponsesLite: responsesLite})
+}
+
+type openAIResponsesCompatibilityOptions struct {
+	ResponsesLite bool
+	// Compact marks the /responses/compact wire shape, which is left as-is
+	// by request-shape compatibility rewrites such as web_search history.
+	Compact bool
+}
+
+func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *Account, opts openAIResponsesCompatibilityOptions) ([]byte, bool, error) {
+	responsesLite := opts.ResponsesLite
 	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
@@ -1550,6 +1562,14 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			}
 			normalized = next
 			changed = true
+		}
+		if !opts.Compact {
+			webSearchBody, webSearchChanged, err := ensureOpenAIOAuthWebSearchToolForHistoryBody(normalized, responsesLite)
+			if err != nil {
+				return body, false, fmt.Errorf("normalize websocket body: %w", err)
+			}
+			normalized = webSearchBody
+			changed = changed || webSearchChanged
 		}
 	}
 	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() &&
@@ -2083,6 +2103,23 @@ func openAIGroupForcesFast(ctx context.Context, account *Account) bool {
 	return IsGroupContextValid(group) && groupSupportsOpenAIFast(group.Platform) && group.ForceOpenAIFast
 }
 
+// openAIGroupForcedTier 返回分组当前请求应强制使用的 service_tier。
+// 仅当分组开启 ForceOpenAIFast 时生效：
+//   - Astra 模型且分组 ForceOpenAIAstraTier=="ultrafast" → ultrafast
+//   - 其余情况 → priority
+//
+// 返回空串表示该分组不强制档位（保持不变）。
+func openAIGroupForcedTier(ctx context.Context, account *Account, model string) string {
+	if !openAIGroupForcesFast(ctx, account) {
+		return ""
+	}
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	if group != nil && group.ForceOpenAIAstraTier == OpenAIFastTierUltrafast && isOpenAIGPT6AstraModel(model) {
+		return OpenAIFastTierUltrafast
+	}
+	return OpenAIFastTierPriority
+}
+
 // applyOpenAIFastPolicyToBody applies the OpenAI fast policy to a raw request
 // body. When action=filter it removes the service_tier field; when
 // action=block it returns (body, *OpenAIFastBlockedError). On pass it
@@ -2102,10 +2139,10 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 	if len(body) == 0 {
 		return body, nil
 	}
-	if openAIGroupForcesFast(ctx, account) {
-		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+	if forced := openAIGroupForcedTier(ctx, account, model); forced != "" {
+		updated, err := sjson.SetBytes(body, "service_tier", forced)
 		if err != nil {
-			return body, fmt.Errorf("force group service_tier priority on body: %w", err)
+			return body, fmt.Errorf("force group service_tier %s on body: %w", forced, err)
 		}
 		body = updated
 	}
@@ -2228,10 +2265,10 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	if frameType != "response.create" {
 		return frame, nil, nil
 	}
-	if openAIGroupForcesFast(ctx, account) {
-		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+	if forced := openAIGroupForcedTier(ctx, account, model); forced != "" {
+		updated, err := sjson.SetBytes(frame, "service_tier", forced)
 		if err != nil {
-			return frame, nil, fmt.Errorf("force group service_tier priority in ws frame: %w", err)
+			return frame, nil, fmt.Errorf("force group service_tier %s in ws frame: %w", forced, err)
 		}
 		frame = updated
 	}
