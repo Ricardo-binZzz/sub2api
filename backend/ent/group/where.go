@@ -300,6 +300,16 @@ func FreeOpenaiFast(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldFreeOpenaiFast, v))
 }
 
+// ForceOpenaiAstraTier applies equality check predicate on the "force_openai_astra_tier" field. It's identical to ForceOpenaiAstraTierEQ.
+func ForceOpenaiAstraTier(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldForceOpenaiAstraTier, v))
+}
+
+// UltrafastMultiplier applies equality check predicate on the "ultrafast_multiplier" field. It's identical to UltrafastMultiplierEQ.
+func UltrafastMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUltrafastMultiplier, v))
+}
+
 // RequireOauthOnly applies equality check predicate on the "require_oauth_only" field. It's identical to RequireOauthOnlyEQ.
 func RequireOauthOnly(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRequireOauthOnly, v))
@@ -2303,6 +2313,111 @@ func FreeOpenaiFastEQ(v bool) predicate.Group {
 // FreeOpenaiFastNEQ applies the NEQ predicate on the "free_openai_fast" field.
 func FreeOpenaiFastNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldFreeOpenaiFast, v))
+}
+
+// ForceOpenaiAstraTierEQ applies the EQ predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierNEQ applies the NEQ predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierIn applies the In predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldForceOpenaiAstraTier, vs...))
+}
+
+// ForceOpenaiAstraTierNotIn applies the NotIn predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldForceOpenaiAstraTier, vs...))
+}
+
+// ForceOpenaiAstraTierGT applies the GT predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierGTE applies the GTE predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierLT applies the LT predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierLTE applies the LTE predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierContains applies the Contains predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierHasPrefix applies the HasPrefix predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierHasSuffix applies the HasSuffix predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierEqualFold applies the EqualFold predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldForceOpenaiAstraTier, v))
+}
+
+// ForceOpenaiAstraTierContainsFold applies the ContainsFold predicate on the "force_openai_astra_tier" field.
+func ForceOpenaiAstraTierContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldForceOpenaiAstraTier, v))
+}
+
+// UltrafastMultiplierEQ applies the EQ predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUltrafastMultiplier, v))
+}
+
+// UltrafastMultiplierNEQ applies the NEQ predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldUltrafastMultiplier, v))
+}
+
+// UltrafastMultiplierIn applies the In predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldUltrafastMultiplier, vs...))
+}
+
+// UltrafastMultiplierNotIn applies the NotIn predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldUltrafastMultiplier, vs...))
+}
+
+// UltrafastMultiplierGT applies the GT predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldUltrafastMultiplier, v))
+}
+
+// UltrafastMultiplierGTE applies the GTE predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldUltrafastMultiplier, v))
+}
+
+// UltrafastMultiplierLT applies the LT predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldUltrafastMultiplier, v))
+}
+
+// UltrafastMultiplierLTE applies the LTE predicate on the "ultrafast_multiplier" field.
+func UltrafastMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldUltrafastMultiplier, v))
 }
 
 // RequireOauthOnlyEQ applies the EQ predicate on the "require_oauth_only" field.
