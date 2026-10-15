@@ -632,10 +632,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	rawTier := requestView.ServiceTier
-	if openAIGroupForcesFast(ctx, account) {
-		rawTier = OpenAIFastTierPriority
-		if requestView.ServiceTier != OpenAIFastTierPriority {
-			markPatchSet("service_tier", OpenAIFastTierPriority)
+	if forced := openAIGroupForcedTier(ctx, account, upstreamModel); forced != "" {
+		rawTier = forced
+		if requestView.ServiceTier != forced {
+			markPatchSet("service_tier", forced)
 		}
 	}
 	if rawTier != "" {
