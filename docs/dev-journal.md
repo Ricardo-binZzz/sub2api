@@ -1,5 +1,18 @@
 # Development journal
 
+## 2026-10-16: JEV single-pass coverage and rule comparison
+
+User requested improving JEV recall without a synchronous second check. Preserve
+thresholds, group scope and disabled automatic bans. Add engine-specific current
+input extraction that treats client reminder tags as data; bounded contextual
+disambiguation only for short references; and explicit coverage/error evidence.
+Version common judging guidance independently of unchanged category questions.
+Add bounded asynchronous 1% legacy-rule comparisons at the existing JEV provider,
+without enforcement or stored prompt text. No new moderation provider is used.
+The referenced outbound identity convention remains absent; this change does not
+touch outbound generation identity or account extra. Tests/deployment evidence
+will be recorded in the task delivery report.
+
 ## 2026-10-16: generation TPS
 
 The usage table, operations TPS distribution and per-model token statistics now

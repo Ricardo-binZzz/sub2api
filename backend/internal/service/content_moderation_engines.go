@@ -37,10 +37,13 @@ type UpdateContentModerationEngineInput struct {
 }
 
 type ContentModerationEngineMeta struct {
-	Engine        string `json:"engine"`
-	Model         string `json:"model"`
-	RulesVersion  string `json:"rules_version"`
-	SkippedImages int    `json:"skipped_images"`
+	Engine         string `json:"engine"`
+	Model          string `json:"model"`
+	RulesVersion   string `json:"rules_version"`
+	SkippedImages  int    `json:"skipped_images"`
+	ContextTurns   int    `json:"context_turns,omitempty"`
+	OriginalRunes  int    `json:"original_runes,omitempty"`
+	InputTruncated bool   `json:"input_truncated,omitempty"`
 }
 
 func moderationEngine(engine string) string {
