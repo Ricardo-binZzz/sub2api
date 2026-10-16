@@ -30,12 +30,17 @@ func TestOpsOutputTPSDistribution(t *testing.T) {
 		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE id IN ($1, $2)", group.ID, otherGroup.ID)
 		_, _ = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", user.ID)
 	})
-	insert := func(at time.Time, groupID *int64, output int, duration *int, requestType service.RequestType, imageCount, imageTokens int, billingMode string) {
+	insert := func(at time.Time, groupID *int64, output int, duration *int, requestType service.RequestType, imageCount, imageTokens int, billingMode string, firstToken ...*int) {
 		t.Helper()
+		zero := 0
+		first := &zero
+		if len(firstToken) > 0 {
+			first = firstToken[0]
+		}
 		_, err := integrationDB.ExecContext(ctx, `INSERT INTO usage_logs
-   (user_id, api_key_id, account_id, group_id, request_id, model, input_tokens, output_tokens, duration_ms, request_type, image_count, image_output_tokens, billing_mode, created_at, image_size)
-   VALUES ($1,$2,$3,$4,$5,'gpt-test',100000,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $9 > 0 THEN '1K' ELSE NULL END)`,
-			user.ID, key.ID, account.ID, groupID, fmt.Sprintf("output-tps-%d-%d", user.ID, time.Now().UnixNano()), output, duration, requestType, imageCount, imageTokens, billingMode, at)
+   (user_id, api_key_id, account_id, group_id, request_id, model, input_tokens, output_tokens, duration_ms, request_type, image_count, image_output_tokens, billing_mode, created_at, image_size, first_token_ms)
+   VALUES ($1,$2,$3,$4,$5,'gpt-test',100000,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $9 > 0 THEN '1K' ELSE NULL END,$13)`,
+			user.ID, key.ID, account.ID, groupID, fmt.Sprintf("output-tps-%d-%d", user.ID, time.Now().UnixNano()), output, duration, requestType, imageCount, imageTokens, billingMode, at, first)
 		require.NoError(t, err)
 	}
 	// Rates 1, 10, 100, 1000: unequal durations catch ratio-of-sums mistakes.
@@ -50,9 +55,15 @@ func TestOpsOutputTPSDistribution(t *testing.T) {
 		{100, 1000, service.RequestTypeWSV2, start.Add(2 * time.Hour)},
 		{500, 500, service.RequestTypeCyberBlocked, end.Add(-time.Minute)},
 	} {
-		insert(sample.at, &group.ID, sample.output, &sample.duration, sample.kind, 0, 0, "token")
+		first := 250
+		total := sample.duration + first
+		insert(sample.at, &group.ID, sample.output, &total, sample.kind, 0, 0, "token", &first)
 	}
 	positive, zero, negative := 1000, 0, -1
+	tooLate := 1001
+	for _, first := range []*int{nil, &negative, &positive, &tooLate} {
+		insert(start, &group.ID, 9999, &positive, service.RequestTypeStream, 0, 0, "token", first)
+	}
 	for _, d := range []*int{nil, &zero, &negative} {
 		insert(start, &group.ID, 9999, d, service.RequestTypeSync, 0, 0, "token")
 	}
@@ -98,6 +109,14 @@ func TestOpsOutputTPSDistribution(t *testing.T) {
 		require.NoError(t, err)
 		assertStats(overview.OutputTPS)
 	}
+	// The per-model card must use the same valid samples and generation interval.
+	tokenStats, err := repo.GetOpenAITokenStats(ctx, &service.OpsOpenAITokenStatsFilter{
+		StartTime: start, EndTime: end, Platform: "openai", GroupID: &group.ID, TopN: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, tokenStats.Items, 1)
+	require.NotNil(t, tokenStats.Items[0].AvgTokensPerSec)
+	require.InDelta(t, 277.75, *tokenStats.Items[0].AvgTokensPerSec, 1e-9)
 	filter.Platform = service.PlatformAnthropic
 	empty, err := repo.queryOutputTPS(ctx, filter)
 	require.NoError(t, err)

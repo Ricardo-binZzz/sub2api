@@ -41,7 +41,7 @@ const messages: Record<string, string> = {
   'admin.usage.turnStateSourceLong.manual': 'long.manual',
   'admin.usage.turnStateSourceLong.auto': 'long.auto',
   'admin.usage.turnStateSourceLong.auto_stale': 'long.auto_stale',
-  'usage.outputTps': 'Output TPS',
+  'usage.outputTps': 'TPS',
   'admin.usage.userDeletedBadge': 'Deleted',
   'admin.usage.turnStateOverriddenShort': 'OVR',
   'admin.usage.turnStateOverridden': 'Override active',
@@ -162,18 +162,18 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
-  it('shows output TPS in the latency cell using total duration', () => {
+  it('shows TPS in the latency cell excluding first-token latency', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 1000, duration_ms: 20_000, first_token_ms: 10_000 }
     const wrapper = mount(UsageTable, {
       props: {
-        data: [row, { ...row, request_id: 'no-duration', duration_ms: null }, { ...row, request_id: 'image', image_count: 1 }],
+        data: [row, { ...row, request_id: 'no-duration', duration_ms: null }, { ...row, request_id: 'image', image_count: 1 }, { ...row, request_id: 'no-first-token', first_token_ms: null }],
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['50.0 tok/s', '—', '—'])
-    expect(wrapper.text()).toContain('Output TPS')
+    expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['100.00 tok/s', '—', '—', '—'])
+    expect(wrapper.text()).toContain('TPS')
   })
 
   beforeEach(() => {

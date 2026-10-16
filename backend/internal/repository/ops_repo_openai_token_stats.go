@@ -41,8 +41,12 @@ WITH stats AS (
     ROUND(
       AVG(
         CASE
-          WHEN ul.duration_ms > 0 AND ul.output_tokens > 0
-          THEN ul.output_tokens * 1000.0 / ul.duration_ms
+          WHEN ul.first_token_ms >= 0 AND ul.duration_ms > ul.first_token_ms AND ul.output_tokens > 0
+          AND ul.image_count = 0 AND ul.image_output_tokens = 0
+          AND COALESCE(ul.billing_mode, '') <> 'image'
+          ` + fmt.Sprintf("AND ul.request_type IN (%d, %d, %d, %d)",
+		service.RequestTypeSync, service.RequestTypeStream, service.RequestTypeWSV2, service.RequestTypeCyberBlocked) + `
+          THEN ul.output_tokens * 1000.0 / NULLIF(ul.duration_ms - ul.first_token_ms, 0)
         END
       )::numeric,
       2
