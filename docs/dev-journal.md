@@ -27,3 +27,18 @@ sanitization. Deployment evidence is in
 /opt/sub2api-deploys/cyber-policy-message-20261016/README.md.
 The referenced outbound identity convention remains absent; this change does not
 modify outbound identity or account extra persistence.
+
+## 2026-10-16: yunbay standby
+
+User selected ordinary official relay and Fast groups only. Added a group-scoped
+standby gate because advanced score/Top-K selection cannot enforce strict backup
+semantics using priority alone. Yunbay activates only when the configured primary
+accounts cannot serve the current request; normal recovery overrides session
+stickiness while actual continuation ownership is preserved. Existing group 82
+behavior and model mappings remain unchanged. The upstream models endpoint
+confirmed four GPT models but not codex-auto-review. No unsupported mapping added.
+Referenced outbound identity/account-extra-freshness files are absent. Configuration
+uses the existing atomic bulk extra merge API, avoiding stale whole-extra writes.
+Added the missing unit tag to the previous cyber test fixture that uses unit-only
+helpers so default service test compilation also works.
+Deployment evidence: /opt/sub2api-deploys/yunbay-standby-20261016/README.md.

@@ -1838,6 +1838,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return false, reason
 	}
+	if s != nil && s.service != nil && !s.service.openAIStandbyAllowed(ctx, account, req) {
+		return false, "standby_primary_available"
+	}
 	return true, ""
 }
 
@@ -2338,6 +2341,15 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
+	ctx = withOpenAIStandbyRequest(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, Platform: platform, RequestedModel: requestedModel,
+		PreviousResponseID: previousResponseID, PreviousResponseCanMove: previousResponseCanMove,
+		GuardianParentAccountID: guardianParentAccountID,
+		ExcludedIDs:             excludedIDs, RequireCompact: requireCompact,
+		RequiredTransport: requiredTransport, RequiredCapability: requiredCapability,
+		RequiredImageCapability: requiredImageCapability,
+		RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
+	})
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
