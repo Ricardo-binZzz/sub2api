@@ -1,5 +1,38 @@
 # Development journal
 
+## 2026-10-16: official v0.2.17 production merge preparation
+
+User authorized merging all deployed customizations with official v0.2.17,
+submitting to the owned fork, waiting for successful CI, then blue/green rollout.
+The branch has real production 7d05e63de and upstream tag 060d016041 as merge
+parents. Preserve all existing migrations and JEV/standby/Astra/TPS/ticket code.
+Resolve the four rehearsed conflicts without discarding WS compatibility calls.
+Adapt subscription retirement to CPR while retaining API-key model support.
+EPUSDT authenticated order-query compatibility must be deployed and verified
+before enabling v0.2.17's mandatory upstream notification confirmation.
+Do not weaken payment confirmation or manufacture live payments/refunds to test.
+Missing outbound-identity/freshness conventions remain absent; no outbound
+identity/account-extra policy redesign is part of this merge.
+
+
+## 2026-10-16: isolated v0.2.17 upgrade assessment
+
+Prepared a content-level three-way rehearsal using exact official v0.2.16,
+the full production 7d05e63de aggregate delta and official v0.2.17 tree. Four
+text conflicts resolved in the assessment checkout only: retain custom WS
+environment projection before new WithConfig normalization, keep payment return
+URL hardening plus upstream RawPath clearing, adapt the flattened account filter
+test while preserving CPR. No production source/configuration changes or rollout.
+Referenced outbound-identity/account-extra conventions are absent; account extra
+and outbound identity policy are not redesigned by this assessment.
+
+Real, read-only v0.2.17-style queries against completed gateway orders: AliMPay
+200 with matching amount/trade number; EPUSDT 404. The new mandatory upstream
+notification confirmation therefore blocks deployment until EPUSDT implements
+the authenticated query contract. Do not remove confirmation as a workaround.
+Official retirement filtering also needs custom CPR coverage. No new official
+migrations/dependencies; retain all already-executed custom migrations unchanged.
+
 ## 2026-10-16: JEV single-pass coverage and rule comparison
 
 User requested improving JEV recall without a synchronous second check. Preserve
