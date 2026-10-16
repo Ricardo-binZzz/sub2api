@@ -798,7 +798,10 @@ func openAICompatTerminalResponse(event *apicompat.ResponsesStreamEvent, payload
 		}
 		return &apicompat.ResponsesResponse{
 			Status: "failed",
-			Error:  &apicompat.ResponsesError{Code: event.Code, Message: message},
+			Error: &apicompat.ResponsesError{
+				Code: firstNonEmpty(gjson.GetBytes(payload, "error.code").String(), event.Code),
+				Type: gjson.GetBytes(payload, "error.type").String(), Message: message,
+			},
 		}
 	default:
 		return nil

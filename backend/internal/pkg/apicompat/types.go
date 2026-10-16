@@ -389,6 +389,7 @@ type ResponsesResponse struct {
 // ResponsesError describes an error in a failed response.
 type ResponsesError struct {
 	Code    string `json:"code"`
+	Type    string `json:"type,omitempty"`
 	Message string `json:"message"`
 }
 
