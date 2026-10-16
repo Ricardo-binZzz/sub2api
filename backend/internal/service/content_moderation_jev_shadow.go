@@ -18,11 +18,11 @@ type jevShadowTask struct {
 
 // Best-effort legacy/new comparison at the same existing JEV provider. No new
 // data destination, no stored prompts, no sanctions or blocklist side effects.
-func (s *ContentModerationService) enqueueJevShadow(input ContentModerationCheckInput, cfg *ContentModerationConfig, current *moderationAPIResult) {
+func (s *ContentModerationService) enqueueJevShadow(input ContentModerationCheckInput, cfg *ContentModerationConfig, current *moderationAPIResult, inputHash string) {
 	if s.asyncQueue == nil || len(s.asyncQueue) >= 16 || cfg.Engine != ContentModerationEngineTypeSafe || cfg.Mode != ContentModerationModePreBlock {
 		return
 	}
-	sum := sha256.Sum256([]byte(input.RequestID + "\x00" + string(input.Body)))
+	sum := sha256.Sum256([]byte(input.RequestID + "\x00" + inputHash))
 	if binary.BigEndian.Uint64(sum[:8])%100 != 0 {
 		return
 	}

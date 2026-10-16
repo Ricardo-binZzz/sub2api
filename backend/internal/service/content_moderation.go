@@ -1145,7 +1145,7 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 
 	flagged, highestCategory, highestScore := evaluateModerationScores(result.CategoryScores, cfg.Thresholds)
 	if trackPreBlock && cfg.Engine == ContentModerationEngineTypeSafe {
-		s.enqueueJevShadow(input, cfg, result)
+		s.enqueueJevShadow(input, cfg, result, hashText)
 	}
 	action := ContentModerationActionAllow
 	blocked := false
