@@ -33,6 +33,7 @@ const (
 	NotificationEmailEventCyberPolicyNotice           = "content_moderation.cyber_policy_notice"
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
+	NotificationEmailEventTicketReply                 = "support.ticket_reply"
 
 	notificationEmailTemplateKeyPrefix    = "notification_email_template:"
 	notificationEmailPreferenceKeyPrefix  = "notification_email_preference:"
@@ -369,7 +370,13 @@ func (s *NotificationEmailService) PreviewTemplate(ctx context.Context, input No
 	for key, value := range input.Variables {
 		variables[key] = value
 	}
-	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, nil)
+	var rawHTML map[string]string
+	if normalizedEvent == NotificationEmailEventTicketReply {
+		if _, customConversation := input.Variables["conversation_html"]; !customConversation {
+			rawHTML = map[string]string{"conversation_html": ticketEmailPreviewConversation(normalizedLocale == notificationEmailLocaleChinese)}
+		}
+	}
+	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, rawHTML)
 }
 
 func (s *NotificationEmailService) Send(ctx context.Context, input NotificationEmailSendInput) error {
@@ -526,6 +533,12 @@ func (s *NotificationEmailService) sampleVariables(ctx context.Context, event, l
 
 func (s *NotificationEmailService) runtimeVariables(ctx context.Context, event, locale string, input NotificationEmailSendInput) map[string]string {
 	variables := s.sampleVariables(ctx, event, locale)
+	if event == NotificationEmailEventTicketReply {
+		for _, key := range []string{"ticket_id", "ticket_subject", "ticket_url", "conversation_html"} {
+			variables[key] = ""
+		}
+		variables["ticket_link_display"] = "none"
+	}
 	for key, value := range input.Variables {
 		variables[key] = value
 	}
@@ -764,7 +777,8 @@ func renderNotificationEmailString(event, raw string, variables map[string]strin
 }
 
 func notificationEmailRawHTMLAllowed(event, placeholder string) bool {
-	return event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html"
+	return (event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html") ||
+		(event == NotificationEmailEventTicketReply && placeholder == "conversation_html")
 }
 
 func notificationEmailAllowedPlaceholderSet(event string) map[string]struct{} {
@@ -898,6 +912,7 @@ func isSafeNotificationEmailURL(raw string) bool {
 func notificationEmailSampleVariables(locale string) map[string]string {
 	if normalizeNotificationLocale(locale) == notificationEmailLocaleChinese {
 		variables := map[string]string{
+			"ticket_id": "1024", "ticket_subject": "API 请求问题", "ticket_url": "https://example.com/tickets/1024", "ticket_link_display": "table", "conversation_html": "用户与客服的完整对话记录",
 			"site_name":           defaultSiteName,
 			"recipient_name":      "张三",
 			"recipient_email":     "user@example.com",
@@ -946,6 +961,7 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 		return variables
 	}
 	variables := map[string]string{
+		"ticket_id": "1024", "ticket_subject": "Help with an API request", "ticket_url": "https://example.com/tickets/1024", "ticket_link_display": "table", "conversation_html": "Complete conversation between you and support",
 		"site_name":           defaultSiteName,
 		"recipient_name":      "Alex",
 		"recipient_email":     "user@example.com",
@@ -1152,9 +1168,27 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 			append(append([]string{}, notificationEmailOpsSummaryPlaceholders...), "report_detail_display", "report_html")...,
 		),
 	},
+	NotificationEmailEventTicketReply: {
+		Event:        NotificationEmailEventTicketReply,
+		Label:        "Support ticket reply",
+		Description:  "Sent to the ticket owner when support replies to their ticket.",
+		Category:     "support",
+		Optional:     false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "ticket_id", "ticket_subject", "ticket_url", "ticket_link_display", "conversation_html"),
+	},
 }
 
 var notificationEmailOfficialTemplates = map[string]map[string]notificationEmailOfficialTemplate{
+	NotificationEmailEventTicketReply: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] New reply to ticket #{{ticket_id}} · {{ticket_subject}}",
+			HTML:    ticketReplyEmailTemplate(false),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 您的工单已有新的回复 · #{{ticket_id}} {{ticket_subject}}",
+			HTML:    ticketReplyEmailTemplate(true),
+		},
+	},
 	NotificationEmailEventAuthVerifyCode: {
 		notificationEmailDefaultLocale: {
 			Subject: "[{{site_name}}] Email verification code",

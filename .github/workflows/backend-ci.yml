@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     # main 只是 sync-upstream.yml 的 cron 宿主，每天 03:17 UTC 被重建成
     # upstream/main + 那一个工作流文件。上面跑的是上游的代码不是 klno 的，
@@ -52,7 +53,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          go version | grep -q 'go1.27.2'
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -92,11 +93,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          go version | grep -q 'go1.27.2'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
+          version: v2.14.0
           args: --timeout=30m
           working-directory: backend
 

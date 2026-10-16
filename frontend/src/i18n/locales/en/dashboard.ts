@@ -395,6 +395,8 @@ export default {
     latency: 'Latency',
     latencyFirstToken: 'First',
     latencyDuration: 'Total',
+    outputTps: 'TPS',
+    outputTpsHint: 'Output tokens / (total duration − first-token latency), in tok/s, calculated from unrounded milliseconds. Missing first-token data or invalid duration shows —. This estimates generation speed; output tokens may include reasoning tokens.',
     time: 'Time',
     ws: 'WS',
     stream: 'Stream',

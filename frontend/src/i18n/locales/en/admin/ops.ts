@@ -4,6 +4,8 @@ export default {
       description: 'Operational monitoring and troubleshooting',
       // Dashboard
       systemHealth: 'System Health',
+      outputTps: 'Per-request output TPS',
+      outputTpsSamples: 'Valid samples: {count}',
       overview: 'Overview',
       noSystemMetrics: 'No system metrics collected yet.',
       collectedAt: 'Collected at:',
@@ -176,7 +178,7 @@ export default {
         table: {
           model: 'Model',
           requestCount: 'Requests',
-          avgTokensPerSec: 'Avg Tokens/sec',
+          avgTokensPerSec: 'Avg TPS (excl. TTFT)',
           avgFirstTokenMs: 'Avg First Token Latency (ms)',
           totalOutputTokens: 'Total Output Tokens',
           avgDurationMs: 'Avg Duration (ms)',
@@ -426,6 +428,7 @@ export default {
           kind: 'Kind',
           platform: 'Platform',
           model: 'Model',
+          account: 'Account',
           duration: 'Duration',
           status: 'Status',
           requestId: 'Request ID',
@@ -803,6 +806,7 @@ export default {
         accountError: 'Error'
       },
       tooltips: {
+        outputTps: 'Percentiles of each valid usage record’s output tokens / (total duration − first-token latency), within the selected time, platform and group. Output may include reasoning tokens; they are not added again. P50 is the median; P5/P10 show slower requests. Higher is faster. Estimates generation speed using unrounded milliseconds. Excludes images, Live, missing first-token data and records without positive output or generation duration. Samples come from retained usage logs; — means no samples or temporarily unavailable statistics.',
         totalRequests: 'Total number of requests (including both successful and failed requests) in the selected time window.',
         throughputTrend: 'Requests/QPS + Tokens/TPS in the selected window.',
         switchRateTrend: 'Trend of account switches / total requests over the last 5 hours (avg switches).',

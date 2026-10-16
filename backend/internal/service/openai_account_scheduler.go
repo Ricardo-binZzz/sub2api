@@ -1822,7 +1822,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}) {
 		return false, "shadow_parent_unhealthy"
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+	if req.RequestedModel != "" && !supportsOpenAIRequestModel(account, req.RequestedModel, req.RequireCompact) {
 		return false, "model_not_supported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
@@ -1837,6 +1837,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	// 排序/评分/粘性/熔断只在合格账号之间工作；named reason 进入 filter stats。
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return false, reason
+	}
+	if s != nil && s.service != nil && !s.service.openAIStandbyAllowed(ctx, account, req) {
+		return false, "standby_primary_available"
 	}
 	return true, ""
 }
@@ -2338,6 +2341,15 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
+	ctx = withOpenAIStandbyRequest(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, Platform: platform, RequestedModel: requestedModel,
+		PreviousResponseID: previousResponseID, PreviousResponseCanMove: previousResponseCanMove,
+		GuardianParentAccountID: guardianParentAccountID,
+		ExcludedIDs:             excludedIDs, RequireCompact: requireCompact,
+		RequiredTransport: requiredTransport, RequiredCapability: requiredCapability,
+		RequiredImageCapability: requiredImageCapability,
+		RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
+	})
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance

@@ -140,12 +140,13 @@ func ContentModerationCategories() []string {
 }
 
 type ContentModerationConfig struct {
-	Engine   string                         `json:"engine,omitempty"`
-	TypeSafe *ContentModerationEngineConfig `json:"typesafe,omitempty"`
-	Enabled  bool                           `json:"enabled"`
-	Mode     string                         `json:"mode"`
-	BaseURL  string                         `json:"base_url"`
-	Model    string                         `json:"model"`
+	typesafeLegacyRules bool                           // In-memory shadow comparison only; never persisted.
+	Engine              string                         `json:"engine,omitempty"`
+	TypeSafe            *ContentModerationEngineConfig `json:"typesafe,omitempty"`
+	Enabled             bool                           `json:"enabled"`
+	Mode                string                         `json:"mode"`
+	BaseURL             string                         `json:"base_url"`
+	Model               string                         `json:"model"`
 	// ProxyID 指定审计请求使用的代理服务器（IP管理-代理服务器），nil 表示直连。
 	ProxyID              *int64                       `json:"proxy_id,omitempty"`
 	APIKey               string                       `json:"api_key,omitempty"`
@@ -333,8 +334,10 @@ type ContentModerationCheckInput struct {
 }
 
 type ContentModerationInput struct {
-	Text   string
-	Images []string
+	Text          string
+	Images        []string
+	Context       []jevContextTurn
+	OriginalRunes int
 }
 
 func (in *ContentModerationInput) Normalize() {
@@ -375,6 +378,10 @@ func (in ContentModerationInput) Hash() string {
 	h := sha256.New()
 	_, _ = h.Write([]byte("text:"))
 	_, _ = h.Write([]byte(in.Text))
+	if len(in.Context) > 0 {
+		b, _ := json.Marshal(in.Context)
+		_, _ = h.Write(b)
+	}
 	for _, image := range in.Images {
 		imageHash := sha256.Sum256([]byte(image))
 		_, _ = h.Write([]byte("\nimage:"))
@@ -544,6 +551,8 @@ type ContentModerationService struct {
 	runtimeRefreshRetryAt    atomic.Int64
 	keyHealthMu              sync.Mutex
 	keyHealth                map[string]*contentModerationKeyHealth
+	jevShadowLast            atomic.Int64
+	jevShadowActive          atomic.Bool
 }
 
 type contentModerationRuntimeSnapshot struct {
@@ -556,6 +565,7 @@ type contentModerationRuntimeSnapshot struct {
 }
 
 type contentModerationTask struct {
+	jevShadow        *jevShadowTask
 	input            ContentModerationCheckInput
 	content          ContentModerationInput
 	inputHash        string
@@ -720,7 +730,18 @@ func (s *ContentModerationService) UpdateConfig(ctx context.Context, input Updat
 	if err != nil {
 		return nil, fmt.Errorf("marshal content moderation config: %w", err)
 	}
-	if err := s.settingRepo.Set(ctx, SettingKeyContentModerationConfig, string(raw)); err != nil {
+	var saveErr error
+	if writer, ok := s.settingRepo.(interface {
+		SetContentModerationConfig(context.Context, string, []int64) error
+	}); ok {
+		saveErr = writer.SetContentModerationConfig(ctx, string(raw), cfg.GroupIDs)
+		if errors.Is(saveErr, ErrGroupNotFound) {
+			return nil, infraerrors.BadRequest("INVALID_CONTENT_MODERATION_GROUP", "审计分组不存在")
+		}
+	} else {
+		saveErr = s.settingRepo.Set(ctx, SettingKeyContentModerationConfig, string(raw))
+	}
+	if err := saveErr; err != nil {
 		return nil, fmt.Errorf("save content moderation config: %w", err)
 	}
 	s.replaceRuntimeConfig(cfg, raw)
@@ -963,6 +984,9 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		}
 	}
 	content := ExtractContentModerationInput(input.Protocol, input.Body)
+	if cfg.Engine == ContentModerationEngineTypeSafe {
+		content = extractJevModerationInput(input.Protocol, input.Body)
+	}
 	if content.IsEmpty() {
 		slog.Info("content_moderation.skip_empty_input",
 			"user_id", input.UserID,
@@ -982,6 +1006,9 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		"protocol", input.Protocol,
 		"text_runes", len([]rune(content.Text)),
 		"image_count", len(content.Images))
+	if cfg.Engine == ContentModerationEngineTypeSafe {
+		slog.Info("content_moderation.coverage", "request_id", input.RequestID, "engine", cfg.Engine, "rules_version", TypeSafeModerationRulesVersion, "input_runes", content.OriginalRunes, "audited_runes", len([]rune(content.Text)), "context_turns", len(content.Context), "unaudited_images", len(content.Images), "truncated", content.OriginalRunes > len([]rune(content.Text)))
+	}
 	hashText := content.Hash()
 	if cfg.PreHashCheckEnabled && s.hashCache != nil {
 		matched, err := s.hashCache.HasFlaggedInputHash(ctx, hashText)
@@ -1069,8 +1096,18 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 		defer s.preBlockActive.Add(-1)
 	}
 	start := time.Now()
-	result, err := s.callModeration(ctx, cfg, content.ModerationInput(), trackPreBlock)
+	payload := content.ModerationInput()
+	if cfg.Engine == ContentModerationEngineTypeSafe {
+		payload = jevModerationPayload(content)
+	}
+	result, err := s.callModeration(ctx, cfg, payload, trackPreBlock)
 	latency := int(time.Since(start).Milliseconds())
+	if result != nil && result.EngineMeta != nil && cfg.Engine == ContentModerationEngineTypeSafe {
+		result.EngineMeta.ContextTurns = len(content.Context)
+		result.EngineMeta.SkippedImages = len(content.Images)
+		result.EngineMeta.OriginalRunes = content.OriginalRunes
+		result.EngineMeta.InputTruncated = content.OriginalRunes > len([]rune(content.Text))
+	}
 	if err != nil {
 		if trackPreBlock {
 			s.recordPreBlockSyncMetric(latency, ContentModerationActionError)
@@ -1090,15 +1127,26 @@ func (s *ContentModerationService) checkSync(ctx context.Context, input ContentM
 		if queueDelay != nil {
 			s.asyncErrors.Add(1)
 		}
-		if cfg.RecordNonHits {
-			log := s.buildLog(input, cfg, ContentModerationActionError, false, "", 0, nil, content.ExcerptText(), &latency, queueDelay, err.Error())
+		if cfg.RecordNonHits || cfg.Engine == ContentModerationEngineTypeSafe {
+			excerpt := ""
+			if cfg.RecordNonHits {
+				excerpt = content.ExcerptText()
+			}
+			log := s.buildLog(input, cfg, ContentModerationActionError, false, "", 0, nil, excerpt, &latency, queueDelay, err.Error())
 			log.EngineMeta = moderationAttemptMeta(cfg, content)
-			_ = s.repo.CreateLog(ctx, log)
+			if cfg.RecordNonHits {
+				_ = s.repo.CreateLog(ctx, log)
+			} else {
+				s.enqueueRecord(input, cfg, log, "", false, false)
+			}
 		}
 		return allow
 	}
 
 	flagged, highestCategory, highestScore := evaluateModerationScores(result.CategoryScores, cfg.Thresholds)
+	if trackPreBlock && cfg.Engine == ContentModerationEngineTypeSafe {
+		s.enqueueJevShadow(input, cfg, result, hashText)
+	}
 	action := ContentModerationActionAllow
 	blocked := false
 	if allowBlock && !input.riskControlLogOnly && flagged && cfg.Mode == ContentModerationModePreBlock {
@@ -1264,6 +1312,12 @@ func (s *ContentModerationService) worker(id int) {
 					slog.Error("content_moderation.worker_panic", "worker_id", id, "recover", r)
 				}
 			}()
+			if task.jevShadow != nil {
+				if cfg.Enabled && cfg.Engine == ContentModerationEngineTypeSafe && cfg.Mode == ContentModerationModePreBlock {
+					s.runJevShadow(ctx, task)
+				}
+				return
+			}
 			if task.log != nil {
 				s.asyncActive.Add(1)
 				defer s.asyncActive.Add(-1)

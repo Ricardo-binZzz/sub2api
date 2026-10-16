@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -70,21 +72,62 @@ func ClearOpsCyberPolicy(c *gin.Context) {
 	c.Set(opsCyberPolicyKey, (*CyberPolicyMark)(nil))
 }
 
-// detectOpenAICyberPolicy 精确识别 cyber_policy（对齐 codex api_bridge.rs:145 /
-// sse/responses.rs:529）。命中返回 (true, "cyber_policy", message)。
+// detectOpenAICyberPolicy recognizes the explicit provider code and the observed
+// content_policy_violation wrapper. The latter must also carry the specific
+// cybersecurity rejection message; generic content policy and echoed input are
+// not evidence of a cyber rejection. Inspect each error object independently.
 func detectOpenAICyberPolicy(payload []byte) (bool, string, string) {
-	code := gjson.GetBytes(payload, "error.code").String()
-	if code == "" {
-		code = gjson.GetBytes(payload, "response.error.code").String()
-	}
-	if !strings.EqualFold(strings.TrimSpace(code), "cyber_policy") {
+	if !gjson.ValidBytes(payload) {
 		return false, "", ""
 	}
-	msg := gjson.GetBytes(payload, "error.message").String()
-	if msg == "" {
-		msg = gjson.GetBytes(payload, "response.error.message").String()
+	for _, path := range []string{"error", "response.error"} {
+		errObject := gjson.GetBytes(payload, path)
+		code := strings.TrimSpace(errObject.Get("code").String())
+		errType := strings.TrimSpace(errObject.Get("type").String())
+		message := strings.TrimSpace(errObject.Get("message").String())
+		if strings.EqualFold(code, "cyber_policy") {
+			return true, "cyber_policy", message
+		}
+		if !strings.EqualFold(errType, "content_policy_violation") &&
+			!strings.EqualFold(code, "content_policy_violation") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(message), "this content was flagged for possible cybersecurity risk.") {
+			return true, "cyber_policy", message
+		}
 	}
-	return true, "cyber_policy", strings.TrimSpace(msg)
+	return false, "", ""
+}
+
+// writeOpenAICyberPolicyError keeps the refusal actionable without forwarding
+// arbitrary provider metadata. The compact bridge retains its SSE framing.
+func writeOpenAICyberPolicyError(c *gin.Context, status int, headers http.Header, message string) {
+	message = sanitizeUpstreamErrorMessage(message)
+	if message == "" {
+		message = "Request blocked by upstream cyber-security policy"
+	}
+	body, _ := json.Marshal(gin.H{"error": gin.H{
+		"type": "invalid_request_error", "code": "cyber_policy", "message": message,
+	}})
+	MarkResponseCommitted(c)
+	if !writeOpenAICompactSSEBridge(c, status, body) {
+		writeOpenAIPassthroughErrorHeaders(c.Writer.Header(), headers)
+		c.Data(status, "application/json; charset=utf-8", body)
+	}
+}
+
+// A non-streaming client may receive a buffered upstream SSE failure. Preserve
+// its refusal and usage evidence instead of turning it into a protocol 502.
+func (s *OpenAIGatewayService) writeBufferedOpenAICyberPolicyError(c *gin.Context, resp *http.Response, payload, body []byte) bool {
+	if hit, _, _ := detectOpenAICyberPolicy(payload); !hit {
+		return false
+	}
+	usage := s.parseSSEUsageFromBody(string(body))
+	markOpenAICyberPolicyEvent(c, payload, resp.StatusCode, usage)
+	mark := GetOpsCyberPolicy(c)
+	setOpsUpstreamError(c, resp.StatusCode, mark.Message, truncateString(string(payload), 2048))
+	writeOpenAICyberPolicyError(c, http.StatusForbidden, resp.Header, mark.Message)
+	return true
 }
 
 func markOpenAICyberPolicyEvent(c *gin.Context, payload []byte, upstreamStatus int, usage *OpenAIUsage) bool {

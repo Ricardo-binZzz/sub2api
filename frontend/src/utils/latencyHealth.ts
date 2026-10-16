@@ -1,3 +1,5 @@
+import type { UsageLog } from '@/types'
+
 /**
  * 请求延迟健康度分档（用于用量明细"延迟"列的纵向健康扫视）。
  *
@@ -66,4 +68,20 @@ export const LATENCY_BAR_TO_CLASSES: Record<LatencySeverity, string> = {
   warn: 'to-amber-400',
   slow: 'to-orange-500',
   critical: 'to-red-500',
+}
+
+// 与运维 Token 请求统计一致：扣除首字等待，使用原始毫秒值估算输出速度。
+export const formatUsageOutputRate = (row: Pick<UsageLog,
+  'output_tokens' | 'duration_ms' | 'first_token_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode' | 'request_type'
+>): string => {
+  const { output_tokens: outputTokens, duration_ms: durationMs, first_token_ms: firstTokenMs } = row
+  if (row.image_count > 0 || row.image_output_tokens > 0 || row.billing_mode === 'image'
+    || (row.request_type && !['sync', 'stream', 'ws_v2', 'cyber'].includes(row.request_type))
+    || !Number.isFinite(outputTokens) || outputTokens <= 0
+    || durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0
+    || firstTokenMs == null || !Number.isFinite(firstTokenMs) || firstTokenMs < 0
+    || durationMs <= firstTokenMs) {
+    return '—'
+  }
+  return `${(outputTokens * 1000 / (durationMs - firstTokenMs)).toFixed(2)} tok/s`
 }
