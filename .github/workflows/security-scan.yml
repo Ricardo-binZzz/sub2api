@@ -1,6 +1,7 @@
 name: Security Scan
 
 on:
+  workflow_dispatch:
   push:
     # 同 backend-ci.yml：main 是 cron 宿主（每天被重建成上游代码），tag push
     # 与推分支那次扫的是同一棵树。周一的 schedule 不受这里影响，照常跑。

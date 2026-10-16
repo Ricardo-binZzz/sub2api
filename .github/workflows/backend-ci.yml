@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     # main 只是 sync-upstream.yml 的 cron 宿主，每天 03:17 UTC 被重建成
     # upstream/main + 那一个工作流文件。上面跑的是上游的代码不是 klno 的，
